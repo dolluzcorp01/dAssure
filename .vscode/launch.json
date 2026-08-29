@@ -1,0 +1,47 @@
+{
+    // F5 starts the dTprm API (server.js) on TPRM_PORT (4009) with the
+    // debugger attached. The first entry is what F5 runs by default.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "dTprm: backend (server.js)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/server.js",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"],
+            "restart": true
+        },
+        {
+            "name": "dTprm: frontend (react-scripts)",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "npm",
+            "runtimeArgs": ["start"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        },
+        {
+            "name": "dTprm: run migrations",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/db/migrate.js",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/.env",
+            "console": "integratedTerminal",
+            "skipFiles": ["<node_internals>/**"]
+        }
+    ],
+    "compounds": [
+        {
+            "name": "dTprm: full stack",
+            "configurations": [
+                "dTprm: backend (server.js)",
+                "dTprm: frontend (react-scripts)"
+            ]
+        }
+    ]
+}

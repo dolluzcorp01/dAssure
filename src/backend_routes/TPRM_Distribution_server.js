@@ -1,0 +1,647 @@
+// Getting questionnaires out to suppliers and reading them back in.
+//
+// THE IMPORT MODEL. A returned workbook lands as ASSERTIONS, not answers:
+//
+//   • Answer + evidence attached  → stored at the claimed position, flagged
+//                                   vendor_asserted. An assessor accepts it,
+//                                   in bulk per control area.
+//   • Answer, no evidence         → drops to Not Evidenced and scores 1,
+//                                   automatically. The claim is preserved in
+//                                   the assessor note so it can still be read.
+//   • In scope but came back blank → the same automatic drop.
+//
+// The assessor's time therefore goes only where evidence is missing or
+// contested, and the score shown before they have looked at anything is
+// already honest rather than flattering.
+
+require("dotenv").config();
+const express = require("express");
+const multer = require("multer");
+const archiver = require("archiver");
+const unzipper = require("unzipper");
+const getDBConnection = require('../../config/db');
+const { verifyJWT } = require('./TPRM_Login_server');
+const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const excel = require('./utils/tprm_excel');
+const scoring = require('./utils/tprm_scoring');
+const storage = require('./utils/tprm_storage');
+const mailer = require('./utils/tprm_mailer');
+const contradiction = require('./utils/tprm_contradiction');
+const A = require('./TPRM_Assessments_server');
+const { logError } = require('./utils/tprm_log');
+
+const router = express.Router();
+const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 60 * 1024 * 1024 } });
+
+router.use(verifyJWT, tenantScope);
+
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/* ------------------------------------------------- 1. the tiering pack */
+router.get("/:tenantId/tiering-pack", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [req.tenantId]);
+        const [vendors] = await db.query(
+            `SELECT tp.third_party_id, tp.third_party_name, tp.sector_code, s.sector_name
+               FROM third_party tp
+               JOIN triage_decision td ON td.third_party_id = tp.third_party_id AND td.in_scope = 1
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+              WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL
+              ORDER BY tp.third_party_name`, [req.tenantId]);
+        if (!vendors.length) {
+            return res.status(400).json({
+                error: "NOTHING_IN_SCOPE",
+                message: "No suppliers are in scope after triage yet. Complete the Triage step first.",
+            });
+        }
+
+        const [core] = await db.query(
+            `SELECT DISTINCT q.q_ref, q.dimension_code, q.q_text,
+                    q.score_1_label, q.score_2_label, q.score_3_label, q.sort_order
+               FROM question q
+               JOIN instrument_version iv
+                 ON iv.instrument_version_id = q.instrument_version_id AND iv.status='published'
+              WHERE q.q_type='tiering' AND q.is_core=1
+              ORDER BY q.sort_order, q.q_ref`);
+
+        const buf = await excel.tieringPack({ tenantName: t.tenant_name, questions: core, vendors });
+        await audit(req, {
+            action: 'tiering.pack_downloaded', entity: 'tenant', entityId: req.tenantId,
+            after: { vendors: vendors.length }, tenantId: req.tenantId,
+        });
+        res.setHeader('Content-Type', XLSX_MIME);
+        res.setHeader('Content-Disposition',
+            `attachment; filename="Tiering_Pack_${vendors.length}_suppliers.xlsx"`);
+        res.send(Buffer.from(buf));
+    } catch (e) {
+        logError("tiering-pack", e, req);
+        res.status(500).json({ error: "Could not build the tiering pack" });
+    }
+});
+
+/** Read a completed tiering pack back and create/score one assessment per row. */
+router.post("/:tenantId/tiering-pack/import", requirePerm('assessment.perform'),
+    upload.single('file'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+        if (!req.file) return res.status(400).json({ error: "Attach the completed tiering pack" });
+
+        let parsed;
+        try { parsed = await excel.parseTieringPack(req.file.buffer); }
+        catch (e) { return res.status(400).json({ error: e.code || 'FILE_UNREADABLE', message: e.message }); }
+
+        const results = [];
+        let tiered = 0;
+
+        for (const row of parsed.rows) {
+            const [[tp]] = await db.query(
+                `SELECT * FROM third_party WHERE third_party_id=? AND tenant_id=?`,
+                [row.third_party_id, req.tenantId]);
+            if (!tp) {
+                results.push({ supplier: row.third_party_name, status: 'skipped', message: 'Not a supplier of this client' });
+                continue;
+            }
+            if (!row.answers.length) {
+                results.push({ supplier: tp.third_party_name, status: 'skipped', message: 'No scores entered' });
+                continue;
+            }
+
+            // Find or create the open assessment for this supplier
+            let [[a]] = await db.query(
+                `SELECT * FROM assessment WHERE third_party_id=?
+                  AND state IN ('draft','in_progress') ORDER BY assessment_id DESC LIMIT 1`,
+                [tp.third_party_id]);
+
+            if (!a) {
+                const [[iv]] = await db.query(
+                    `SELECT instrument_version_id FROM instrument_version
+                      WHERE sector_code=? AND status='published' ORDER BY version_no DESC LIMIT 1`,
+                    [tp.sector_code]);
+                if (!iv) {
+                    results.push({
+                        supplier: tp.third_party_name, status: 'skipped',
+                        message: `No published questionnaire for ${tp.sector_code}`,
+                    });
+                    continue;
+                }
+                const [ins] = await db.query(
+                    `INSERT INTO assessment (tenant_id, third_party_id, instrument_version_id, created_by)
+                     VALUES (?,?,?,?)`,
+                    [req.tenantId, tp.third_party_id, iv.instrument_version_id, req.emp_id]);
+                [[a]] = await db.query(`SELECT * FROM assessment WHERE assessment_id=?`, [ins.insertId]);
+            }
+
+            for (const ans of row.answers) {
+                await db.query(
+                    `INSERT INTO response (assessment_id, q_ref, q_type, tiering_score, answered_by, answered_time)
+                     VALUES (?,?,'tiering',?,?,NOW(3))
+                     ON DUPLICATE KEY UPDATE tiering_score=VALUES(tiering_score), answered_time=NOW(3)`,
+                    [a.assessment_id, ans.q_ref, ans.score, req.emp_id]);
+            }
+            if (a.state === 'draft') {
+                await db.query(`UPDATE assessment SET state='in_progress' WHERE assessment_id=?`, [a.assessment_id]);
+            }
+            const out = await A.recompute(a.assessment_id);
+            tiered++;
+            results.push({
+                supplier: tp.third_party_name, status: 'tiered',
+                assessmentId: a.assessment_id, answered: row.answers.length,
+                expected: row.expected, tier: out.tier, inherent: out.inherent,
+                partial: row.answers.length < row.expected,
+            });
+        }
+
+        await audit(req, {
+            action: 'tiering.pack_imported', entity: 'tenant', entityId: req.tenantId,
+            after: { tiered }, tenantId: req.tenantId,
+        });
+        res.json({ success: true, tiered, problems: parsed.problems, results });
+    } catch (e) {
+        logError("tiering import", e, req);
+        res.status(500).json({ error: "Could not read that workbook" });
+    }
+});
+
+/* ---------------------------------- 2. issue the control questionnaires */
+
+async function controlsFor(a) {
+    const [rows] = await db.query(
+        `SELECT q.q_ref, q.q_text, q.evidence_required, q.domain_code, q.standards_mapping,
+                cd.domain_name
+           FROM question q LEFT JOIN control_domain cd ON cd.domain_code = q.domain_code
+          WHERE q.instrument_version_id=? AND q.q_type='control' AND q.tier_applies >= ?
+          ORDER BY cd.sort_order, q.sort_order, q.q_ref`,
+        [a.instrument_version_id, a.tier || 3]);
+    return rows;
+}
+
+async function markIssued(req, a, channel, recipient, key) {
+    await db.query(
+        `INSERT INTO distribution
+           (assessment_id, channel, state, recipient, workbook_key, issued_time, issued_by)
+         VALUES (?,?,?,?,?,NOW(3),?)
+         ON DUPLICATE KEY UPDATE channel=VALUES(channel), state=VALUES(state),
+           recipient=VALUES(recipient), workbook_key=VALUES(workbook_key),
+           issued_time=NOW(3), issued_by=VALUES(issued_by)`,
+        [a.assessment_id, channel, channel === 'zip' ? 'zipped' : 'emailed',
+         recipient || null, key || null, req.emp_id]);
+}
+
+/** Route A: one ZIP of every workbook, which the client forwards itself.
+ *  This is a GET so the browser can stream the download directly. */
+router.get("/:tenantId/issue-zip", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [req.tenantId]);
+        const only = req.query.assessmentIds
+            ? String(req.query.assessmentIds).split(',').map(Number).filter(Boolean) : [];
+
+        const [list] = await db.query(
+            `SELECT a.*, tp.third_party_name, tp.ref_code, tp.security_contact, tp.sector_code, s.sector_name
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+              WHERE a.tenant_id=? AND a.tier IS NOT NULL
+                ${only.length ? `AND a.assessment_id IN (${only.map(() => '?').join(',')})` : ''}
+              ORDER BY tp.third_party_name`,
+            only.length ? [req.tenantId, ...only] : [req.tenantId]);
+
+        if (!list.length) {
+            return res.status(400).json({
+                error: "NOTHING_TIERED",
+                message: "No tiered suppliers are ready for a questionnaire. Complete the Tiering step first.",
+            });
+        }
+
+        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Disposition',
+            `attachment; filename="${t.tenant_name.replace(/\W+/g, '_')}_questionnaires_${list.length}.zip"`);
+
+        const zip = archiver('zip', { zlib: { level: 9 } });
+        zip.on('error', e => { logError('zip', e, req); res.end(); });
+        zip.pipe(res);
+
+        for (const a of list) {
+            const controls = await controlsFor(a);
+            const wb = await excel.controlWorkbook({
+                tenantName: t.tenant_name,
+                vendor: {
+                    third_party_id: a.third_party_id, third_party_name: a.third_party_name,
+                    sector_code: a.sector_code, sector_name: a.sector_name,
+                },
+                assessment: a, controls,
+            });
+            zip.append(Buffer.from(wb), {
+                name: `${a.third_party_name.replace(/\W+/g, '_')}_${a.ref_code}.xlsx`,
+            });
+            await markIssued(req, a, 'zip', null, null);
+        }
+
+        await audit(req, {
+            action: 'questionnaire.zip_downloaded', entity: 'tenant', entityId: req.tenantId,
+            after: { count: list.length }, tenantId: req.tenantId,
+        });
+        zip.finalize();
+    } catch (e) {
+        logError("issue-zip", e, req);
+        if (!res.headersSent) res.status(500).json({ error: "Could not build the ZIP" });
+    }
+});
+
+/** Route B: we email each supplier its own workbook, with the file attached. */
+router.post("/:tenantId/issue-email", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [req.tenantId]);
+        const only = Array.isArray(req.body.assessmentIds) ? req.body.assessmentIds : [];
+
+        const [list] = await db.query(
+            `SELECT a.*, tp.third_party_name, tp.ref_code, tp.security_contact, tp.sector_code, s.sector_name
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+              WHERE a.tenant_id=? AND a.tier IS NOT NULL
+                ${only.length ? `AND a.assessment_id IN (${only.map(() => '?').join(',')})` : ''}`,
+            only.length ? [req.tenantId, ...only] : [req.tenantId]);
+
+        if (!list.length) {
+            return res.status(400).json({ error: "NOTHING_TIERED", message: "No tiered suppliers are ready for a questionnaire" });
+        }
+
+        let sent = 0;
+        const skipped = [];
+        for (const a of list) {
+            if (!a.security_contact) {
+                skipped.push({ supplier: a.third_party_name, reason: 'No security contact on file' });
+                continue;
+            }
+            const controls = await controlsFor(a);
+            const wb = await excel.controlWorkbook({
+                tenantName: t.tenant_name,
+                vendor: {
+                    third_party_id: a.third_party_id, third_party_name: a.third_party_name,
+                    sector_code: a.sector_code, sector_name: a.sector_name,
+                },
+                assessment: a, controls,
+            });
+            const fileName = `${a.third_party_name.replace(/\W+/g, '_')}_questionnaire.xlsx`;
+            const key = storage.keyFor(`tenant/${req.tenantId}/questionnaire`, fileName);
+            storage.put(key, Buffer.from(wb));
+
+            const tpl = mailer.templates.vendorQuestionnaire({
+                vendorName: a.third_party_name, tenantName: t.tenant_name, days: 15,
+            });
+            await mailer.queue({
+                tenantId: req.tenantId, to: a.security_contact,
+                subject: tpl.subject, body: tpl.body,
+                attachmentKey: key, attachmentName: fileName,
+                kind: 'questionnaire', empId: req.emp_id,
+            });
+            await markIssued(req, a, 'email', a.security_contact, key);
+            sent++;
+        }
+
+        await audit(req, {
+            action: 'questionnaire.emailed', entity: 'tenant', entityId: req.tenantId,
+            after: { sent, skipped: skipped.length }, tenantId: req.tenantId,
+        });
+        res.json({ success: true, sent, skipped });
+    } catch (e) {
+        logError("issue-email", e, req);
+        res.status(500).json({ error: "Could not queue the questionnaires" });
+    }
+});
+
+router.get("/:tenantId/status", async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [rows] = await db.query(
+            `SELECT d.*, a.assessment_id, a.tier, a.state AS assessment_state,
+                    tp.third_party_name, tp.ref_code, tp.security_contact, s.sector_name
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+               LEFT JOIN distribution d ON d.assessment_id = a.assessment_id
+              WHERE a.tenant_id=? AND a.tier IS NOT NULL
+              ORDER BY tp.third_party_name`, [req.tenantId]);
+        res.json(rows);
+    } catch (e) {
+        logError("distribution status", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.post("/assessments/:id/remind", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        const a = await A.loadAssessment(req.params.id);
+        if (!a) return res.status(404).json({ error: "That assessment does not exist" });
+        req.tenantId = Number(a.tenant_id);
+        if (!requireTenant(req, res)) return;
+
+        const [[d]] = await db.query(
+            `SELECT * FROM distribution WHERE assessment_id=?`, [a.assessment_id]);
+        if (!d) return res.status(400).json({ error: "NOT_ISSUED", message: "That questionnaire has not been issued yet" });
+        if (!d.recipient) {
+            return res.status(400).json({
+                error: "NO_RECIPIENT",
+                message: "That questionnaire went out in a ZIP, so the client is chasing it, not us.",
+            });
+        }
+
+        const tpl = mailer.templates.vendorQuestionnaire({
+            vendorName: a.third_party_name, tenantName: a.tenant_name, days: 5,
+        });
+        await mailer.queue({
+            tenantId: a.tenant_id, to: d.recipient,
+            subject: 'Reminder: ' + tpl.subject, body: tpl.body,
+            attachmentKey: d.workbook_key,
+            attachmentName: `${a.third_party_name.replace(/\W+/g, '_')}_questionnaire.xlsx`,
+            kind: 'reminder', empId: req.emp_id,
+        });
+        await db.query(
+            `UPDATE distribution SET state='reminded', reminded_time=NOW(3) WHERE distribution_id=?`,
+            [d.distribution_id]);
+        await audit(req, {
+            action: 'questionnaire.reminded', entity: 'assessment', entityId: a.assessment_id,
+            tenantId: a.tenant_id,
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("remind", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+/* ------------------------------- 3. read the returned workbooks back in */
+
+/** A single workbook or a whole returned ZIP. Both come through one path.
+ *  Evidence files inside the ZIP are matched to a control by the folder or
+ *  filename prefix, which is what the "Evidence folder" column asks for. */
+async function explode(file) {
+    const name = String(file.originalname || '').toLowerCase();
+    if (!name.endsWith('.zip')) {
+        return { workbooks: [{ name: file.originalname, buffer: file.buffer }], evidence: [] };
+    }
+    const dir = await unzipper.Open.buffer(file.buffer);
+    const workbooks = [], evidence = [];
+    for (const entry of dir.files) {
+        if (entry.type !== 'File') continue;
+        if (entry.path.startsWith('__MACOSX') || entry.path.includes('/.')) continue;
+        const buf = await entry.buffer();
+        if (/\.xlsx$/i.test(entry.path)) workbooks.push({ name: entry.path, buffer: buf });
+        else evidence.push({ path: entry.path, buffer: buf });
+    }
+    return { workbooks, evidence };
+}
+
+/** Which control does this evidence file belong to? Folder name wins, then a
+ *  filename prefix such as "IAM-02_mfa_policy.pdf". */
+function evidenceRefFor(entryPath, knownRefs) {
+    const parts = entryPath.split('/').filter(Boolean);
+    for (const p of parts) {
+        const hit = knownRefs.find(r => r.toLowerCase() === p.toLowerCase());
+        if (hit) return hit;
+    }
+    const base = parts[parts.length - 1] || '';
+    const hit = knownRefs.find(r => base.toLowerCase().startsWith(r.toLowerCase()));
+    return hit || null;
+}
+
+router.post("/import/preview", requirePerm('assessment.perform'),
+    upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: "Attach the returned workbook or ZIP" });
+        const { workbooks, evidence } = await explode(req.file);
+        if (!workbooks.length) {
+            return res.status(400).json({ error: "NO_WORKBOOK", message: "That file contains no .xlsx questionnaire" });
+        }
+
+        const results = [];
+        for (const f of workbooks) {
+            try {
+                const parsed = await excel.parseControlWorkbook(f.buffer);
+                const aid = Number(parsed.meta.assessment_id);
+                const [[a]] = await db.query(`SELECT * FROM assessment WHERE assessment_id=?`, [aid]);
+                if (!a) {
+                    results.push({
+                        file: f.name, status: 'skipped', code: 'ASSESSMENT_UNKNOWN',
+                        message: 'The identity sheet points at an assessment that no longer exists',
+                    });
+                    continue;
+                }
+                // Tenant check on preview too. Otherwise a crafted identity
+                // sheet would reveal another client's supplier names.
+                if (!req.grants[a.tenant_id]) {
+                    results.push({
+                        file: f.name, status: 'skipped', code: 'NOT_A_MEMBER',
+                        message: 'That workbook belongs to a client you do not have access to',
+                    });
+                    continue;
+                }
+
+                const [[tp]] = await db.query(
+                    `SELECT third_party_name FROM third_party WHERE third_party_id=?`, [a.third_party_id]);
+                const [refRows] = await db.query(
+                    `SELECT q_ref FROM question WHERE instrument_version_id=? AND q_type='control'`,
+                    [a.instrument_version_id]);
+                const known = refRows.map(r => r.q_ref);
+                const knownSet = new Set(known);
+
+                const matched = parsed.answers.filter(x => knownSet.has(x.q_ref));
+                const unknown = parsed.answers.filter(x => !knownSet.has(x.q_ref))
+                    .map(x => ({
+                        ref: x.q_ref, code: 'REF_NOT_IN_INSTRUMENT',
+                        message: 'That reference is not part of this questionnaire version',
+                    }));
+
+                const evidenceByRef = {};
+                for (const ev of evidence) {
+                    const ref = evidenceRefFor(ev.path, known);
+                    if (ref) evidenceByRef[ref] = (evidenceByRef[ref] || 0) + 1;
+                }
+                const withEvidence = matched.filter(x => evidenceByRef[x.q_ref]).length;
+
+                results.push({
+                    file: f.name, status: 'ready', assessmentId: aid,
+                    supplier: tp ? tp.third_party_name : null,
+                    rows: parsed.answers.length + parsed.problems.length,
+                    willImport: matched.length,
+                    withEvidence,
+                    willDropToNotEvidenced: matched.length - withEvidence,
+                    evidenceFiles: evidence.length,
+                    cannotMatch: [...parsed.problems, ...unknown],
+                });
+            } catch (e) {
+                results.push({
+                    file: f.name, status: 'skipped',
+                    code: e.code || 'UNREADABLE', message: e.message,
+                });
+            }
+        }
+        res.json({ files: results.length, evidenceFiles: evidence.length, results });
+    } catch (e) {
+        logError("import preview", e, req);
+        res.status(500).json({ error: "Could not read that file" });
+    }
+});
+
+router.post("/import/commit", requirePerm('assessment.perform'),
+    upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: "Attach the returned workbook or ZIP" });
+        const { workbooks, evidence } = await explode(req.file);
+
+        let imported = 0, asserted = 0, autoDropped = 0, evidenceSaved = 0;
+        const perFile = [];
+
+        for (const f of workbooks) {
+            let parsed;
+            try { parsed = await excel.parseControlWorkbook(f.buffer); }
+            catch (e) { perFile.push({ file: f.name, status: 'skipped', message: e.message }); continue; }
+
+            const aid = Number(parsed.meta.assessment_id);
+            const [[a]] = await db.query(`SELECT * FROM assessment WHERE assessment_id=?`, [aid]);
+            if (!a) { perFile.push({ file: f.name, status: 'skipped', message: 'Unknown assessment' }); continue; }
+            if (!req.grants[a.tenant_id]) {
+                perFile.push({ file: f.name, status: 'skipped', message: 'Not your client' });
+                continue;
+            }
+            if (['approved', 'issued', 'closed'].includes(a.state)) {
+                perFile.push({ file: f.name, status: 'skipped', message: 'That assessment is already approved' });
+                continue;
+            }
+
+            const [refRows] = await db.query(
+                `SELECT q_ref FROM question WHERE instrument_version_id=? AND q_type='control'`,
+                [a.instrument_version_id]);
+            const known = refRows.map(r => r.q_ref);
+            const knownSet = new Set(known);
+
+            // Bucket the evidence files by control reference first, so we know
+            // which answers are actually backed by something.
+            const evidenceByRef = {};
+            for (const ev of evidence) {
+                const ref = evidenceRefFor(ev.path, known);
+                if (!ref) continue;
+                (evidenceByRef[ref] = evidenceByRef[ref] || []).push(ev);
+            }
+
+            let n = 0, dropped = 0;
+            for (const ans of parsed.answers) {
+                if (!knownSet.has(ans.q_ref)) continue;
+
+                const hasEvidence = !!(evidenceByRef[ans.q_ref] && evidenceByRef[ans.q_ref].length);
+                const isNA = ans.position === 'Not Applicable';
+
+                // The rule, applied here and nowhere else. A claim with no
+                // proof is Not Evidenced, and the original claim is kept in
+                // the note so the assessor can still read what was asserted.
+                let position, vendorAsserted, note = ans.note || null;
+                if (isNA) {
+                    position = 'Not Applicable';
+                    vendorAsserted = 0;
+                } else if (hasEvidence) {
+                    position = ans.position;
+                    vendorAsserted = 1;
+                } else {
+                    position = 'Not Evidenced';
+                    vendorAsserted = 0;
+                    note = `Supplier claimed "${ans.position}" with no evidence attached.`
+                        + (ans.note ? ` Their note: ${ans.note}` : '');
+                    dropped++;
+                }
+
+                await db.query(
+                    `INSERT INTO response
+                       (assessment_id, q_ref, q_type, position, control_score, assessor_note,
+                        vendor_asserted, answered_time)
+                     VALUES (?,?,'control',?,?,?,?,NOW(3))
+                     ON DUPLICATE KEY UPDATE position=VALUES(position),
+                       control_score=VALUES(control_score), assessor_note=VALUES(assessor_note),
+                       vendor_asserted=VALUES(vendor_asserted), answered_time=NOW(3)`,
+                    [aid, ans.q_ref, position, scoring.POSITION_SCORE[position], note, vendorAsserted]);
+
+                if (vendorAsserted) asserted++;
+                n++;
+
+                // Store the evidence files against the response we just wrote
+                if (hasEvidence) {
+                    const [[resp]] = await db.query(
+                        `SELECT response_id FROM response WHERE assessment_id=? AND q_ref=?`, [aid, ans.q_ref]);
+                    for (const ev of evidenceByRef[ans.q_ref]) {
+                        const base = ev.path.split('/').pop();
+                        const key = storage.keyFor(`tenant/${a.tenant_id}/evidence/${aid}`, base);
+                        const put = storage.put(key, ev.buffer);
+                        await db.query(
+                            `INSERT INTO evidence
+                               (response_id, file_key, original_name, mime_type, byte_size, sha256, uploaded_by)
+                             VALUES (?,?,?,?,?,?,?)`,
+                            [resp.response_id, key, base, null, ev.buffer.length, put.sha256, req.emp_id]);
+                        evidenceSaved++;
+                    }
+                }
+            }
+
+            // Anything in scope that came back with nothing at all gets the
+            // same automatic drop. Silence is not a pass.
+            const [missing] = await db.query(
+                `SELECT q.q_ref FROM question q
+                  WHERE q.instrument_version_id=? AND q.q_type='control' AND q.tier_applies >= ?
+                    AND NOT EXISTS (SELECT 1 FROM response r
+                                     WHERE r.assessment_id=? AND r.q_ref=q.q_ref)`,
+                [a.instrument_version_id, a.tier || 3, aid]);
+            for (const m of missing) {
+                await db.query(
+                    `INSERT INTO response
+                       (assessment_id, q_ref, q_type, position, control_score, assessor_note,
+                        vendor_asserted, answered_time)
+                     VALUES (?,?,'control','Not Evidenced',1,'Left blank in the returned workbook.',0,NOW(3))`,
+                    [aid, m.q_ref]);
+            }
+            autoDropped += dropped + missing.length;
+
+            if (a.state === 'draft') {
+                await db.query(`UPDATE assessment SET state='in_progress' WHERE assessment_id=?`, [aid]);
+            }
+            await db.query(
+                `UPDATE distribution SET state='imported',
+                        returned_time=COALESCE(returned_time, NOW(3)), imported_time=NOW(3)
+                  WHERE assessment_id=?`, [aid]);
+
+            await contradiction.refresh(aid, a.instrument_version_id);
+            await A.recompute(aid);
+
+            await audit(req, {
+                action: 'responses.imported', entity: 'assessment', entityId: aid,
+                after: { rows: n, droppedNoEvidence: dropped, blank: missing.length },
+                tenantId: a.tenant_id,
+            });
+            imported += n;
+            perFile.push({
+                file: f.name, status: 'imported', assessmentId: aid, rows: n,
+                droppedNoEvidence: dropped, blankDropped: missing.length,
+            });
+        }
+
+        res.json({
+            success: true, imported, vendorAsserted: asserted,
+            autoNotEvidenced: autoDropped, evidenceSaved, files: perFile,
+        });
+    } catch (e) {
+        logError("import commit", e, req);
+        res.status(500).json({ error: "Could not import that file" });
+    }
+});
+
+module.exports = router;

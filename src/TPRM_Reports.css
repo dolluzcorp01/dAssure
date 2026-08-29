@@ -1,0 +1,4 @@
+/* Reports uses the shared chrome. The hash column is deliberately truncated
+   with the full value in the title attribute. */
+
+.tprm-page .tprm-table td[title] { cursor: help; }

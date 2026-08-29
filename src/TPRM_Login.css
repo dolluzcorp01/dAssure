@@ -1,0 +1,78 @@
+.tprm-login { display: flex; min-height: 100vh; }
+
+.tprm-login-panel {
+    flex: 1;
+    min-width: 460px;
+    background: linear-gradient(150deg, #0D1B2A 0%, #16334F 100%);
+    color: #fff;
+    padding: 44px 56px 40px;
+    display: flex;
+    flex-direction: column;
+}
+
+.tprm-login-brand { font-size: 17px; font-weight: 800; letter-spacing: 3px; }
+
+.tprm-login-panelbody { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 460px; }
+
+.tprm-login-tag {
+    font-size: 9.5px;
+    letter-spacing: 3px;
+    color: #E8863A;
+    font-weight: 700;
+    margin-bottom: 14px;
+}
+
+.tprm-login-headline { font-size: 33px; line-height: 1.2; font-weight: 700; margin: 0 0 16px; }
+
+.tprm-login-sub { font-size: 14.5px; line-height: 1.65; color: #A9BACD; margin: 0; }
+
+.tprm-login-dots { display: flex; gap: 7px; margin-bottom: 22px; }
+
+.tprm-login-dots button {
+    width: 26px;
+    height: 3px;
+    border: none;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, .22);
+    cursor: pointer;
+    padding: 0;
+}
+
+.tprm-login-dots button.on { background: #E8863A; }
+
+.tprm-login-foot { font-size: 10px; letter-spacing: 2.4px; color: #5E728A; }
+
+.tprm-login-form {
+    flex: 0 0 460px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #FBFAF7;
+    padding: 30px;
+}
+
+.tprm-login-formbox { width: 100%; max-width: 340px; }
+
+.tprm-login-logo { width: 132px; margin-bottom: 26px; }
+
+.tprm-login-formbox h2 { font-size: 22px; font-weight: 700; color: #0D1B2A; margin: 0 0 6px; }
+
+.tprm-login-formsub { font-size: 13px; color: #5E6E80; margin: 0 0 24px; line-height: 1.5; }
+
+.tprm-login-err { font-size: 12px; color: #B0392E; margin-top: 5px; }
+
+.tprm-login-note {
+    margin-top: 26px;
+    font-size: 11.5px;
+    color: #94A3B4;
+    line-height: 1.6;
+    border-top: 1px solid #E9EDF2;
+    padding-top: 16px;
+}
+
+@media (max-width: 900px) {
+    .tprm-login { flex-direction: column; }
+    .tprm-login-panel { min-width: 0; padding: 28px; }
+    .tprm-login-headline { font-size: 24px; }
+    .tprm-login-form { flex: 1; }
+}

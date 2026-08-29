@@ -1,23 +1,37 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ---------------------------------------------------------------- installed
+node_modules/
+build/
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-
-# testing
-/coverage
-
-# production
-/build
-
-# misc
-.DS_Store
+# ------------------------------------------------------------------- secrets
+# .env holds the real DB password, JWT secret and SendGrid key. Only
+# .env.example - which carries the key names and no values - is committed.
+.env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+
+# ------------------------------------------------------------ runtime output
+# Uploaded evidence and generated workbooks/reports. Data, not source.
+TPRM_file_uploads/
 
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+logs/
+
+# --------------------------------------------------------------------- tests
+coverage/
+
+# ------------------------------------------------------------------ editors
+# .vscode/launch.json IS committed on purpose - it is what makes F5 start the
+# backend for everyone on the team.
+.vscode/*
+!.vscode/launch.json
+.idea/
+*.swp
+*~
+
+# ---------------------------------------------------------------------- os
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,47 @@
+/* The funnel strip above the step tabs. Shows where the population is
+   without needing a separate reporting page. */
+
+.tprm-funnel {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff;
+    border: 1px solid var(--tprm-line);
+    border-radius: 11px;
+    padding: 14px 18px;
+    margin-bottom: 18px;
+    overflow-x: auto;
+}
+
+.tprm-funnel-node { text-align: center; min-width: 84px; flex: 1; }
+
+.tprm-funnel-n {
+    font-size: 21px;
+    font-weight: 800;
+    color: var(--tprm-navy);
+    line-height: 1.1;
+}
+
+.tprm-funnel-l {
+    font-size: 9.5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--tprm-faint);
+    font-weight: 700;
+    margin-top: 3px;
+}
+
+.tprm-funnel-arrow {
+    color: var(--tprm-line);
+    font-size: 22px;
+    line-height: 1;
+    flex: 0 0 auto;
+}
+
+.tprm-page code {
+    background: #F1F4F7;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: var(--tprm-navy);
+}

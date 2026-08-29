@@ -1,0 +1,4 @@
+/* Clients uses the shared page chrome in App.css. This file exists so the
+   file-per-page convention holds and page-specific tweaks have a home. */
+
+.tprm-page .tprm-table td:first-child { letter-spacing: .4px; }

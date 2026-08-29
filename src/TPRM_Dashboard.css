@@ -1,0 +1,27 @@
+.tprm-dash-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 0;
+}
+
+.tprm-dash-track {
+    flex: 1;
+    height: 8px;
+    background: var(--tprm-line-soft);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.tprm-dash-fill { height: 100%; border-radius: 4px; transition: width .3s ease; }
+
+.tprm-dash-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+    font-size: 13px;
+}
+
+.tprm-dash-row:last-child { border-bottom: none; }

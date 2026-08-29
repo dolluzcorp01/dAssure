@@ -1,0 +1,22 @@
+.tprm-audit-detail { background: #FAFBFC; padding: 14px 18px !important; }
+
+.tprm-audit-detail > div { margin-bottom: 10px; }
+
+.tprm-audit-detail b {
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--tprm-faint);
+}
+
+.tprm-audit-detail pre {
+    font-family: Consolas, monospace;
+    font-size: 11.5px;
+    background: #fff;
+    border: 1px solid var(--tprm-line);
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin: 5px 0 0;
+    overflow-x: auto;
+    color: var(--tprm-body);
+}

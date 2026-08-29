@@ -1,0 +1,4 @@
+/* Findings uses the shared table styling. Breached rows get the danger tint
+   from App.css so an overdue item is visible without reading the number. */
+
+.tprm-page .tprm-table tr.danger td { border-bottom-color: #F5D9D3; }

@@ -1,0 +1,8 @@
+.tprm-qb-standards { display: flex; gap: 7px; flex-wrap: wrap; }
+
+.tprm-qb-scale {
+    font-size: 11px;
+    color: var(--tprm-muted);
+    max-width: 150px;
+    line-height: 1.4;
+}

@@ -1,0 +1,8 @@
+.tprm-assess-band {
+    display: block;
+    font-size: 9.5px;
+    letter-spacing: .8px;
+    color: var(--tprm-faint);
+    font-weight: 700;
+    margin-top: 2px;
+}
