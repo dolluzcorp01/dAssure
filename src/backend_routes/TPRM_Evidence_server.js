@@ -3,7 +3,7 @@
 // were given, and an optional expiry date so a lapsed certificate demotes its
 // control on its own.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const multer = require("multer");
 const getDBConnection = require('../../config/db');

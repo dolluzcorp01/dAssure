@@ -6,7 +6,7 @@
 // import can always be explained or replayed, and so the client can be sent a
 // precise list of what to fix.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const multer = require("multer");
 const getDBConnection = require('../../config/db');
@@ -65,9 +65,10 @@ router.post("/:tenantId/intake-template/email", requirePerm('vendor.manage'), as
         const key = storage.keyFor(`tenant/${req.tenantId}/intake`, 'Supplier_Intake_Template.xlsx');
         storage.put(key, Buffer.from(buf));
 
-        const tpl = mailer.templates.intakeTemplate({ tenantName: t.tenant_name, businessUnit });
+        const tpl = mailer.templates.renderIntakeTemplateEmail(
+            { tenantName: t.tenant_name, businessUnit });
         await mailer.queue({
-            tenantId: req.tenantId, to, subject: tpl.subject, body: tpl.body,
+            tenantId: req.tenantId, to, subject: tpl.subject, body: tpl.text, html: tpl.html,
             attachmentKey: key, attachmentName: 'Supplier_Intake_Template.xlsx',
             kind: 'intake_template', empId: req.emp_id,
         });

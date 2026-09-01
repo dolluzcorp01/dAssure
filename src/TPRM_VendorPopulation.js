@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import { apiJson, apiPost, apiPut, apiUpload, apiDownload, API_BASE } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
+import { FaRegEnvelopeOpen, FaPaperPlane } from "react-icons/fa";
+import TPRMMailPreview from "./TPRM_MailPreview";
 import "./TPRM_VendorPopulation.css";
 
 // The pipeline, left to right. Each step is a tab rather than a locked wizard,
@@ -19,7 +21,7 @@ const STEPS = [
 
 function TPRMVendorPopulation() {
     const { tenantId, tenant } = useAccess();
-    const [step, setStep] = useState("template");
+    const [step, setStep] = useState("overview");
     const [funnel, setFunnel] = useState(null);
 
     const loadFunnel = useCallback(() => {
@@ -50,43 +52,129 @@ function TPRMVendorPopulation() {
                 </div>
             </div>
 
-            {funnel && (
-                <div className="tprm-funnel">
-                    {[
-                        ["Received", funnel.received], ["Classified", funnel.classified],
-                        ["In scope", funnel.in_scope], ["Tiered", funnel.tiered],
-                        ["Issued", funnel.issued], ["Assessed", funnel.assessed],
-                    ].map(([label, n], idx, arr) => (
-                        <React.Fragment key={label}>
-                            <div className="tprm-funnel-node">
-                                <div className="tprm-funnel-n">{n}</div>
-                                <div className="tprm-funnel-l">{label}</div>
-                            </div>
-                            {idx < arr.length - 1 && <div className="tprm-funnel-arrow">&rsaquo;</div>}
-                        </React.Fragment>
-                    ))}
-                </div>
-            )}
-
+            {/* Navigation before content. The rail is how this screen is steered,
+                so it sits directly under the heading rather than below a card -
+                otherwise the funnel reads as if it belonged to step one. */}
             <div className="tprm-steps">
+                <button
+                    className={"tprm-step" + (step === "overview" ? " active" : "")}
+                    onClick={() => { setStep("overview"); loadFunnel(); }}
+                >
+                    <span className="n">0</span>Overview
+                </button>
                 {STEPS.map((s, i) => (
-                    <button
-                        key={s.key}
-                        className={"tprm-step" + (step === s.key ? " active" : "")}
-                        onClick={() => setStep(s.key)}
-                    >
-                        <span className="n">{i + 1}</span>{s.label}
-                    </button>
+                    <React.Fragment key={s.key}>
+                        <span className="tprm-step-arrow">&rarr;</span>
+                        <button
+                            className={"tprm-step" + (step === s.key ? " active" : "")}
+                            onClick={() => setStep(s.key)}
+                        >
+                            <span className="n">{i + 1}</span>{s.label}
+                        </button>
+                    </React.Fragment>
                 ))}
             </div>
 
-            <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel} goto={setStep} />
+            {/* The funnel is the overview, not permanent furniture. Kept on every
+                step it would eat half the screen on the ones where the work is. */}
+            {step === "overview"
+                ? (funnel
+                    ? <><Funnel funnel={funnel} /><OverviewActions goto={setStep} /></>
+                    : <div className="tprm-loading">Working out where the population is...</div>)
+                : <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel} goto={setStep} />}
+        </div>
+    );
+}
+
+/* The funnel. Nobody assesses the whole register, and nobody should - so the
+   shape of the narrowing is the first thing this screen says. Bars are scaled
+   against the population received, which is the only honest denominator. */
+const FUNNEL_STAGES = [
+    ["Population received", "received", "var(--tprm-ink)", "#fff",
+        "Supplier master exported from procurement"],
+    ["Classified", "classified", "var(--tprm-blue)", "#fff",
+        "Instrument suggested by rule, confirmed by an assessor"],
+    ["In scope after triage", "in_scope", "var(--tprm-purple)", "#fff",
+        "Descoped: no data, no access, below threshold"],
+    ["Tiered", "tiered", "var(--tprm-amber)", "#fff",
+        "Inherent tiering complete, Tier 1 and 2 proceed"],
+    ["Questionnaire issued", "issued", "var(--tprm-gold)", "var(--tprm-gold-ink)",
+        "Sent to the supplier, or bundled for the client to forward"],
+    ["Assessed", "assessed", "var(--tprm-green)", "#fff",
+        "Control assessment returned, scored and approved"],
+];
+
+function Funnel({ funnel }) {
+    const max = Math.max(1, Number(funnel.received) || 0);
+    return (
+        <div className="tprm-card" style={{ marginBottom: 18 }}>
+            <div className="tprm-card-title" style={{ marginBottom: 6 }}>
+                The funnel. Nobody assesses the whole register, and nobody should
+            </div>
+            {FUNNEL_STAGES.map(([label, key, fill, ink, why]) => {
+                const n = Number(funnel[key]) || 0;
+                return (
+                    <div className="tprm-funnel-row" key={key}>
+                        <div className="tprm-funnel-label">{label}</div>
+                        <div className="tprm-funnel-track">
+                            <div
+                                className="tprm-funnel-fill"
+                                style={{ width: (n / max * 100) + "%", background: fill, color: ink }}
+                            >
+                                <span>{n}</span>
+                            </div>
+                        </div>
+                        <div className="tprm-funnel-why">{why}</div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+/* Where to go next, for someone who has just read the funnel and can see which
+   stage is starving. The rail above reaches every step; these four are the ones
+   a stalled funnel usually needs. */
+const OVERVIEW_ACTIONS = [
+    ["Send template", "Ask the client for their supplier list", "template", "var(--tprm-ink)"],
+    ["Upload list", "Read a completed workbook into the register", "upload", "var(--tprm-blue)"],
+    ["Classify", "Confirm the suggested instrument", "classify", "var(--tprm-purple)"],
+    ["Triage", "Decide what is in scope", "triage", "var(--tprm-amber)"],
+];
+
+function OverviewActions({ goto }) {
+    return (
+        <div className="tprm-grid k4">
+            {OVERVIEW_ACTIONS.map(([title, why, key, colour]) => (
+                <div className="tprm-card tprm-kpi" key={key} style={{ borderTopColor: colour }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>{title}</div>
+                    <div className="tprm-kpi-sub" style={{ minHeight: 38, lineHeight: 1.45 }}>{why}</div>
+                    <button className="tprm-btn primary sm" onClick={() => goto(key)}>Open</button>
+                </div>
+            ))}
         </div>
     );
 }
 
 /* =============================================== 1. the intake template */
-function StepTemplate({ tenantId, tenant }) {
+
+/* What the client is being asked for, column by column. This is the substance
+   of the step: the workbook comes back useless if the wrong columns are filled,
+   and the only defence is saying plainly which ones matter and why. */
+const INTAKE_COLUMNS = [
+    ["Supplier legal name", "Required", "red", "As it appears on the contract"],
+    ["Trading name", "Optional", "grey", "If different from the legal name"],
+    ["Service description", "Required", "red", "One line. This drives the category suggestion"],
+    ["Your spend category", "Recommended", "amber", "Straight from the procurement system"],
+    ["Annual contract value", "Recommended", "amber", "Used for materiality, not tiering alone"],
+    ["Contract owner", "Required", "red", "Who owns the relationship internally"],
+    ["Supplier contact email", "Required", "red", "Where the questionnaire will be sent"],
+    ["Accesses our data", "Required", "red", "Y or N. Drives the triage decision"],
+    ["Connects to our systems", "Required", "red", "Y or N. Drives the triage decision"],
+    ["Category", "Leave blank", "grey", "We suggest it, an assessor confirms it"],
+];
+
+function StepTemplate({ tenantId, tenant, goto }) {
     const [unit, setUnit] = useState("");
     const [to, setTo] = useState("");
     const [busy, setBusy] = useState(false);
@@ -111,53 +199,76 @@ function StepTemplate({ tenantId, tenant }) {
     };
 
     return (
-        <div className="tprm-grid k2">
-            <div className="tprm-card">
-                <div className="tprm-card-title" style={{ marginBottom: 14 }}>SEND THE TEMPLATE</div>
-                <div className="tprm-note" style={{ marginBottom: 16 }}>
-                    This workbook asks who the client's suppliers are and what they do. It contains
-                    no security questions at all. Those come later, and go to the suppliers rather
-                    than to the client.
+        <div className="tprm-intake">
+            <div className="tprm-card flush">
+                <div className="tprm-intake-head">
+                    <div className="tprm-card-title">Columns in the workbook</div>
                 </div>
-                <div className="tprm-field">
-                    <label>Business unit (optional)</label>
-                    <input
-                        className="tprm-input" value={unit}
-                        placeholder="Upstream Operations"
-                        onChange={e => setUnit(e.target.value)}
-                    />
-                    <div className="tprm-hint">
-                        Only a label on the file. Useful when a large client sends several lists.
-                    </div>
+                <table className="tprm-table">
+                    <tbody>
+                        {INTAKE_COLUMNS.map(([name, need, tone, why]) => (
+                            <tr key={name}>
+                                <td style={{ width: 220, fontWeight: 600 }}>{name}</td>
+                                <td style={{ width: 140 }}>
+                                    <span className={"tprm-chip " + tone}>{need}</span>
+                                </td>
+                                <td style={{ color: "var(--tprm-muted)", fontSize: 13.5 }}>{why}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                <div className="tprm-intake-actions">
+                    <button className="tprm-btn gold" onClick={download} disabled={busy}>
+                        Download the template
+                    </button>
+                    <button className="tprm-btn primary" onClick={() => goto("upload")}>
+                        I have the completed list
+                    </button>
                 </div>
-                <button className="tprm-btn primary" onClick={download} disabled={busy}>
-                    Download the template
-                </button>
             </div>
 
-            <div className="tprm-card">
-                <div className="tprm-card-title" style={{ marginBottom: 14 }}>OR EMAIL IT DIRECTLY</div>
-                <div className="tprm-field">
-                    <label>Send to</label>
-                    <input
-                        className="tprm-input" type="email" value={to}
-                        placeholder="procurement.head@client.com"
-                        onChange={e => setTo(e.target.value)}
-                    />
-                    <div className="tprm-hint">
-                        Usually the client's procurement or contracts lead. They are the only person
-                        who can produce the supplier master.
+            <div>
+                <div className="tprm-card" style={{ marginBottom: 16 }}>
+                    <div className="tprm-card-title" style={{ marginBottom: 14 }}>
+                        Email it to a business unit
+                    </div>
+                    <div className="tprm-field">
+                        <label>Business unit (optional)</label>
+                        <input
+                            className="tprm-input" value={unit}
+                            placeholder="Upstream Operations"
+                            onChange={e => setUnit(e.target.value)}
+                        />
+                        <div className="tprm-hint">
+                            Only a label on the file. Useful when a large client sends several lists.
+                        </div>
+                    </div>
+                    <div className="tprm-field">
+                        <label>Send to</label>
+                        <input
+                            className="tprm-input" type="email" value={to}
+                            placeholder="procurement.head@client.com"
+                            onChange={e => setTo(e.target.value)}
+                        />
+                        <div className="tprm-hint">
+                            Usually the client procurement or contracts lead. They are the only
+                            person who can produce the supplier master.
+                        </div>
+                    </div>
+                    <button
+                        className="tprm-btn primary wide" onClick={email}
+                        disabled={busy || !to}
+                    >
+                        Send template
+                    </button>
+                    <div className="tprm-hint" style={{ marginTop: 12 }}>
+                        Mail is queued in the outbox first, so nothing is lost if the mail provider
+                        is briefly unavailable.
                     </div>
                 </div>
-                <button
-                    className="tprm-btn navy" onClick={email}
-                    disabled={busy || !to}
-                >
-                    Email the template
-                </button>
-                <div className="tprm-hint" style={{ marginTop: 12 }}>
-                    Mail is queued in the outbox first, so nothing is lost if the mail provider is
-                    briefly unavailable.
+                <div className="tprm-note">
+                    The Category column is deliberately blank. Asking a procurement officer to pick
+                    from 36 cyber instruments produces worse data than letting the rules suggest it.
                 </div>
             </div>
         </div>
@@ -204,14 +315,29 @@ function StepUpload({ tenantId, onChanged, goto }) {
                     below is a preview, and the rejected rows can be sent back to the client as a
                     precise fix list.
                 </div>
-                <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".xlsx"
-                    className="tprm-input"
-                    onChange={e => upload(e.target.files[0])}
-                    disabled={busy}
-                />
+                {/* A bare file input gives no target to drag onto and no idea
+                    what the file should be. The zone says both. */}
+                <div className="tprm-dropzone">
+                    <div className="tprm-dropzone-title">Drop the completed workbook here</div>
+                    <div className="tprm-dropzone-sub">
+                        xlsx or xls, up to 25,000 rows in one upload
+                    </div>
+                    <input
+                        ref={fileRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        style={{ display: "none" }}
+                        onChange={e => upload(e.target.files[0])}
+                        disabled={busy}
+                    />
+                    <button
+                        className="tprm-btn primary"
+                        onClick={() => fileRef.current && fileRef.current.click()}
+                        disabled={busy}
+                    >
+                        {busy ? "Reading..." : "Choose file"}
+                    </button>
+                </div>
             </div>
 
             {busy && <div className="tprm-loading">Reading the workbook...</div>}
@@ -234,7 +360,7 @@ function StepUpload({ tenantId, onChanged, goto }) {
 
                     <div className="tprm-page-actions" style={{ marginBottom: 14, marginLeft: 0 }}>
                         <button
-                            className="tprm-btn primary" onClick={commit}
+                            className="tprm-btn gold" onClick={commit}
                             disabled={busy || preview.summary.valid === 0}
                         >
                             Commit {preview.summary.valid} valid rows
@@ -303,7 +429,7 @@ function StepUpload({ tenantId, onChanged, goto }) {
 }
 
 /* ================================================ 3. classification */
-function StepClassify({ tenantId, onChanged }) {
+function StepClassify({ tenantId, onChanged, goto }) {
     const [rows, setRows] = useState(null);
     const [sectors, setSectors] = useState([]);
 
@@ -329,28 +455,37 @@ function StepClassify({ tenantId, onChanged }) {
                 Sorted worst confidence first, so you review only what the rules were unsure about.
                 Anything above 80% is usually safe to leave alone.
             </div>
+            {/* The step ends somewhere. Without this the only way on is the rail,
+                which reads as navigation rather than as finishing the job. */}
+            {/* The forward action sits at the right edge, where the eye lands
+                after reading a row left to right. */}
+            <div className="tprm-step-actions">
+                <button className="tprm-btn gold" onClick={() => goto("triage")}>
+                    Continue to triage
+                </button>
+            </div>
             <div className="tprm-card flush">
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>Ref</th><th>Supplier</th><th>Service</th>
-                            <th>Confidence</th><th style={{ width: 240 }}>Instrument</th>
+                            <th>Ref</th><th>Supplier</th><th>Service line</th>
+                            <th>Their spend category</th>
+                            <th style={{ width: 240 }}>Instrument</th><th>Confidence</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map(r => (
-                            <tr key={r.third_party_id}>
+                            /* Anything the rules were unsure about is tinted, so a
+                               long register shows its own review queue. */
+                            <tr key={r.third_party_id}
+                                className={Number(r.confidence) < 90 ? "tprm-row-attention" : ""}>
                                 <td className="num">{r.ref_code}</td>
                                 <td style={{ fontWeight: 600 }}>{r.third_party_name}</td>
                                 <td style={{ color: "var(--tprm-muted)", maxWidth: 320 }}>{r.service_desc}</td>
                                 <td>
-                                    {r.confidence
-                                        ? <span className={"tprm-chip " + (
-                                            r.confidence >= 80 ? "green"
-                                                : r.confidence >= 65 ? "amber" : "red")}>
-                                            {r.confidence}%
-                                        </span>
-                                        : <span className="tprm-chip grey">manual</span>}
+                                    {r.spend_category
+                                        ? <span className="tprm-chip grey">{r.spend_category}</span>
+                                        : <span style={{ color: "var(--tprm-faint)" }}>-</span>}
                                 </td>
                                 <td>
                                     <select
@@ -365,22 +500,61 @@ function StepClassify({ tenantId, onChanged }) {
                                         ))}
                                     </select>
                                 </td>
+                                {/* A bar reads as a quantity; a pill reads as a
+                                    label. Confidence is a quantity, and the eye
+                                    can sort a column of bars without reading. */}
+                                <td>
+                                    {r.confidence
+                                        ? (
+                                            <div className="tprm-conf">
+                                                <div className="tprm-conf-track">
+                                                    <div
+                                                        className="tprm-conf-fill"
+                                                        style={{
+                                                            width: r.confidence + "%",
+                                                            background: Number(r.confidence) >= 90
+                                                                ? "var(--tprm-green)"
+                                                                : "var(--tprm-amber)",
+                                                        }}
+                                                    />
+                                                </div>
+                                                <span className="mono">{r.confidence}%</span>
+                                            </div>
+                                        )
+                                        : <span className="tprm-chip grey">manual</span>}
+                                </td>
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={5} className="tprm-empty">
-                                No suppliers yet. Upload an intake list first.
+                            <tr><td colSpan={6} className="tprm-empty">
+                                No suppliers yet. The register is filled from the client's own
+                                supplier list.
+                                <div style={{ marginTop: 12, display: "flex", gap: 8,
+                                    justifyContent: "center" }}>
+                                    <button className="tprm-btn sm"
+                                        onClick={() => goto("template")}>
+                                        Send the intake template
+                                    </button>
+                                    <button className="tprm-btn primary sm"
+                                        onClick={() => goto("upload")}>
+                                        Upload a completed list
+                                    </button>
+                                </div>
                             </td></tr>
                         )}
                     </tbody>
                 </table>
+            </div>
+            <div className="tprm-note" style={{ marginTop: 18 }}>
+                Keyword rules run across the supplier name, the service line and the client's own
+                spend category. Anything below 90 per cent is highlighted for a human to confirm.
             </div>
         </>
     );
 }
 
 /* ======================================================= 4. triage */
-function StepTriage({ tenantId, onChanged }) {
+function StepTriage({ tenantId, onChanged, goto }) {
     const [rows, setRows] = useState(null);
 
     const load = useCallback(() => {
@@ -407,9 +581,24 @@ function StepTriage({ tenantId, onChanged }) {
     if (!rows) return <div className="tprm-loading">Loading...</div>;
 
     const undecided = rows.filter(r => r.in_scope === null).length;
+    const inScope = rows.filter(r => Number(r.in_scope) === 1).length;
 
     return (
         <>
+            {/* The rule is stated before the decisions are taken, because this is
+                the decision an auditor questions first and consistency across a
+                register only happens if everyone is applying the same test. */}
+            <div className="tprm-card" style={{ marginBottom: 18 }}>
+                <div className="tprm-card-title" style={{ marginBottom: 10 }}>
+                    The descope rule, editable per client
+                </div>
+                <div style={{ fontSize: 14.5, color: "var(--tprm-muted)", lineHeight: 1.8 }}>
+                    A supplier is descoped when it touches <b>no client data</b>, has <b>no system
+                    or network connectivity</b>, and sits <b>below the materiality threshold</b>.
+                    Descoped does not mean forgotten: the record keeps its reason and an annual
+                    re-check.
+                </div>
+            </div>
             <div className="tprm-note" style={{ marginBottom: 16 }}>
                 {undecided > 0
                     ? `${undecided} suppliers still need a decision. `
@@ -417,21 +606,43 @@ function StepTriage({ tenantId, onChanged }) {
                 Suppliers that reported no data access and no system connection on the intake sheet
                 were descoped automatically. Confirm or overturn each one.
             </div>
+            <div className="tprm-step-actions">
+                <button className="tprm-btn gold" onClick={() => goto("tiering")}>
+                    Continue to tiering, {inScope} in scope
+                </button>
+            </div>
             <div className="tprm-card flush">
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>Ref</th><th>Supplier</th><th>Data</th><th>Systems</th>
-                            <th>Decision</th><th>Reason</th><th style={{ width: 170 }}></th>
+                            <th>Ref</th><th>Supplier</th><th>Instrument</th>
+                            <th>Data access</th><th>System access</th><th>Annual value</th>
+                            <th>Decision</th><th>Reason</th><th>Scope decision</th>
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map(r => (
-                            <tr key={r.third_party_id}>
+                            <tr key={r.third_party_id}
+                                className={Number(r.in_scope) === 0 ? "tprm-row-muted" : ""}>
                                 <td className="num">{r.ref_code}</td>
                                 <td style={{ fontWeight: 600 }}>{r.third_party_name}</td>
-                                <td>{r.data_access || "-"}</td>
-                                <td>{r.system_access || "-"}</td>
+                                <td style={{ color: "var(--tprm-muted)", fontSize: 13 }}>
+                                    {r.sector_code || "-"}
+                                </td>
+                                {/* Y and N as plain text read the same at a glance.
+                                    Reach is the thing triage turns on, so it is
+                                    coloured: red where the supplier can get in. */}
+                                <td>
+                                    <span className={"tprm-chip " + (r.data_access === "Y" ? "red" : "grey")}>
+                                        {r.data_access || "-"}
+                                    </span>
+                                </td>
+                                <td>
+                                    <span className={"tprm-chip " + (r.system_access === "Y" ? "red" : "grey")}>
+                                        {r.system_access || "-"}
+                                    </span>
+                                </td>
+                                <td className="num">{r.annual_value || "-"}</td>
                                 <td>
                                     {r.in_scope === null
                                         ? <span className="tprm-chip grey">Not decided</span>
@@ -442,22 +653,31 @@ function StepTriage({ tenantId, onChanged }) {
                                 <td style={{ color: "var(--tprm-muted)", fontSize: 12, maxWidth: 260 }}>
                                     {r.reason}
                                 </td>
+                                {/* The decision already taken is the filled one, so
+                                    the current state is readable without going back
+                                    to the Decision column. */}
                                 <td>
-                                    <button
-                                        className="tprm-btn sm"
-                                        style={{ marginRight: 6 }}
-                                        onClick={() => decide(r, true)}
-                                    >
-                                        In scope
-                                    </button>
-                                    <button className="tprm-btn sm" onClick={() => decide(r, false)}>
-                                        Descope
-                                    </button>
+                                    <div className="tprm-decide">
+                                        <button
+                                            className={"tprm-btn sm"
+                                                + (Number(r.in_scope) === 1 ? " primary" : "")}
+                                            onClick={() => decide(r, true)}
+                                        >
+                                            In scope
+                                        </button>
+                                        <button
+                                            className={"tprm-btn sm"
+                                                + (Number(r.in_scope) === 0 ? " danger" : "")}
+                                            onClick={() => decide(r, false)}
+                                        >
+                                            Descope
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={7} className="tprm-empty">No suppliers yet.</td></tr>
+                            <tr><td colSpan={9} className="tprm-empty">No suppliers yet.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -497,28 +717,38 @@ function StepTiering({ tenantId, onChanged, goto }) {
                 this is a separate file from the questionnaire the supplier receives.
             </div>
 
+            {/* Two routes, not two steps. They are alternatives - a pack for
+                volume, a live session for anything likely to land Tier 1 - and
+                numbering them 1 and 2 said the opposite. */}
             <div className="tprm-grid k2">
-                <div className="tprm-card">
-                    <div className="tprm-card-title" style={{ marginBottom: 14 }}>1. SEND THE PACK</div>
-                    <p style={{ fontSize: 13, color: "var(--tprm-muted)", lineHeight: 1.6 }}>
-                        One workbook, one row per in-scope supplier, twelve columns of 1 to 3.
-                        The Questions sheet explains what each score means.
+                <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-blue)" }}>
+                    <div className="tprm-route-title">Route A. Send a tiering pack</div>
+                    <p className="tprm-route-why">
+                        One workbook, one row per in-scope supplier, the twelve tiering questions
+                        as locked dropdown columns. Best for volume.
                     </p>
                     <button className="tprm-btn primary" onClick={download} disabled={busy}>
-                        Download the tiering pack
+                        Download tiering pack
                     </button>
                 </div>
 
-                <div className="tprm-card">
-                    <div className="tprm-card-title" style={{ marginBottom: 14 }}>2. READ IT BACK</div>
-                    <p style={{ fontSize: 13, color: "var(--tprm-muted)", lineHeight: 1.6 }}>
-                        Every supplier gets an inherent score, a tier, and an open assessment,
-                        in one pass.
+                <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-purple)" }}>
+                    <div className="tprm-route-title">Route B. Read a completed pack back</div>
+                    <p className="tprm-route-why">
+                        Every supplier gets an inherent score, a tier, and an open assessment, in
+                        one pass. Best once the client has filled the pack in.
                     </p>
                     <input
-                        ref={fileRef} type="file" accept=".xlsx" className="tprm-input"
+                        ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }}
                         onChange={e => importPack(e.target.files[0])} disabled={busy}
                     />
+                    <button
+                        className="tprm-btn primary"
+                        onClick={() => fileRef.current && fileRef.current.click()}
+                        disabled={busy}
+                    >
+                        {busy ? "Reading..." : "Choose the completed pack"}
+                    </button>
                 </div>
             </div>
 
@@ -583,6 +813,8 @@ function StepTiering({ tenantId, onChanged, goto }) {
 function StepDistribute({ tenantId, onChanged }) {
     const [rows, setRows] = useState(null);
     const [busy, setBusy] = useState(false);
+    // { ids?, previewOnly, reminder } - null when closed.
+    const [mail, setMail] = useState(null);
 
     const load = useCallback(() => {
         apiJson(`/api/tprm/distribution/${tenantId}/status`).then(setRows).catch(() => setRows([]));
@@ -598,46 +830,98 @@ function StepDistribute({ tenantId, onChanged }) {
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
     };
 
-    const emailAll = async () => {
-        const ok = await tprmAlert.confirm(
-            "Email every outstanding questionnaire?",
-            "Each supplier receives its own workbook, attached. Suppliers with no security contact on file are skipped.",
-            "Yes, send them");
-        if (!ok) return;
-        setBusy(true);
-        try {
-            const r = await apiPost(`/api/tprm/distribution/${tenantId}/issue-email`, {});
-            tprmAlert.success(`${r.sent} questionnaires queued`,
-                r.skipped.length ? `${r.skipped.length} skipped for having no contact email.` : "");
-            load(); onChanged();
-        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
-    };
-
     const remind = async (a) => {
         try {
             await apiPost(`/api/tprm/distribution/assessments/${a.assessment_id}/remind`, {});
             tprmAlert.success("Reminder queued");
-            load();
+            load(); onChanged();
         } catch (e) { tprmAlert.apiError(e); }
     };
 
+    /* Two separate actions on every row, in the same order and position on all
+       of them. Outline envelope looks, solid plane acts - and the plane never
+       opens the preview, because a button that sometimes sends and sometimes
+       shows is a button people stop trusting. */
+    const previewOne = (r) =>
+        setMail({ ids: [r.assessment_id], previewOnly: true });
+
+    const sendOne = async (r) => {
+        const ok = await tprmAlert.confirm(
+            `Email ${r.third_party_name} their questionnaire now?`,
+            `It goes to ${r.recipient || "the security contact on file"}.`,
+            "Yes, send it");
+        if (!ok) return;
+        setBusy(true);
+        try {
+            const res = await apiPost(`/api/tprm/distribution/${tenantId}/issue-email`,
+                { assessmentIds: [r.assessment_id] });
+            tprmAlert.success(`${res.sent} questionnaire queued`);
+            load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+    };
+
+    /* Why a row cannot be mailed, in the words the modal uses. Returned rather
+       than hidden: an icon that vanishes on some rows makes the column jump. */
+    const blockedReason = (r) =>
+        !r.tier ? "Not tiered yet - complete the Tiering step first"
+            : !r.recipient ? "No security contact on file for this supplier"
+                : null;
+
     if (!rows) return <div className="tprm-loading">Loading...</div>;
+
+    const issued = rows.filter(r => r.state && r.state !== "ready").length;
+    const back = rows.filter(r => ["returned", "imported"].includes(r.state)).length;
+    const imported = rows.filter(r => r.state === "imported").length;
 
     return (
         <>
-            <div className="tprm-note" style={{ marginBottom: 16 }}>
-                Two routes, and they are not equivalent. The ZIP hands the whole set to the client to
-                forward, which keeps us out of the supplier relationship. Emailing direct is faster
-                but means we are chasing suppliers ourselves.
+            {/* Chasing suppliers is the slowest part of an engagement. The four
+                numbers say where the whole population is before any of the
+                per-supplier rows are read. */}
+            <div className="tprm-card" style={{ marginBottom: 18 }}>
+                <div className="tprm-card-title" style={{ marginBottom: 14 }}>
+                    Where the population actually is
+                </div>
+                <div className="tprm-statrow">
+                    {[
+                        [`${issued} of ${rows.length}`, "Questionnaires issued"],
+                        [`${back} of ${rows.length}`, "Responses received"],
+                        [String(imported), "Imported and scored"],
+                        [String(rows.length - back), "Still outstanding"],
+                    ].map(([n, label]) => (
+                        <div key={label}>
+                            <div className="tprm-statrow-n">{n}</div>
+                            <div className="tprm-statrow-l">{label}</div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            <div className="tprm-page-actions" style={{ marginLeft: 0, marginBottom: 16 }}>
-                <button className="tprm-btn primary" onClick={zip} disabled={busy}>
-                    Download all as ZIP
-                </button>
-                <button className="tprm-btn navy" onClick={emailAll} disabled={busy}>
-                    Email each supplier directly
-                </button>
+            <div className="tprm-grid k2" style={{ marginBottom: 18 }}>
+                <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-blue)" }}>
+                    <div className="tprm-route-title">Route A. Client distributes</div>
+                    <p className="tprm-route-why">
+                        One ZIP of every workbook. The client forwards each file to its own
+                        supplier, which keeps us out of the supplier relationship.
+                    </p>
+                    <button className="tprm-btn primary" onClick={zip} disabled={busy}>
+                        Download ZIP
+                    </button>
+                </div>
+                <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-purple)" }}>
+                    <div className="tprm-route-title">Route B. We email each supplier</div>
+                    <p className="tprm-route-why">
+                        The tool emails each supplier its own workbook using the contact from the
+                        intake sheet. Faster, but we are the ones chasing.
+                    </p>
+                    <button
+                        className="tprm-btn primary"
+                        onClick={() => setMail({ previewOnly: false })}
+                        disabled={busy}
+                    >
+                        Email all outstanding
+                    </button>
+                </div>
             </div>
 
             <div className="tprm-card flush">
@@ -673,12 +957,37 @@ function StepDistribute({ tenantId, onChanged }) {
                                 <td style={{ fontSize: 12 }}>
                                     {r.issued_time ? String(r.issued_time).slice(0, 10) : "-"}
                                 </td>
+                                {/* Same three actions, same order, on every row.
+                                    Disabled rather than removed when a row is not
+                                    sendable, so the icons never move about. */}
                                 <td>
-                                    {r.recipient && r.state !== "imported" && (
-                                        <button className="tprm-btn sm" onClick={() => remind(r)}>
+                                    <div className="tprm-rowacts">
+                                        <button
+                                            className="tprm-iconbtn"
+                                            title={`Preview the email to ${r.third_party_name}`}
+                                            aria-label="Preview the email"
+                                            onClick={() => previewOne(r)}
+                                        >
+                                            <FaRegEnvelopeOpen />
+                                        </button>
+                                        <button
+                                            className="tprm-iconbtn solid"
+                                            title={blockedReason(r) || `Send ${r.third_party_name} their questionnaire`}
+                                            aria-label="Send the email"
+                                            disabled={busy || !!blockedReason(r)}
+                                            onClick={() => sendOne(r)}
+                                        >
+                                            <FaPaperPlane />
+                                        </button>
+                                        <button
+                                            className="tprm-btn sm"
+                                            disabled={!r.recipient || r.state === "imported" || !r.state}
+                                            title={!r.state ? "Not issued yet" : undefined}
+                                            onClick={() => remind(r)}
+                                        >
                                             Remind
                                         </button>
-                                    )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}
@@ -690,6 +999,31 @@ function StepDistribute({ tenantId, onChanged }) {
                     </tbody>
                 </table>
             </div>
+
+            <TPRMMailPreview
+                open={!!mail}
+                title={mail && mail.previewOnly ? "Email preview" : "Send questionnaires"}
+                rosterUrl={`/api/tprm/distribution/${tenantId}/email/recipients`}
+                previewUrl={`/api/tprm/distribution/${tenantId}/email/preview`}
+                ids={mail && mail.ids}
+                idKey="assessmentId"
+                rosterKey="assessmentIds"
+                previewOnly={!!(mail && mail.previewOnly)}
+                onClose={() => setMail(null)}
+                onSend={async (checkedIds) => {
+                    const res = await apiPost(`/api/tprm/distribution/${tenantId}/issue-email`,
+                        { assessmentIds: checkedIds });
+                    // Refetch before the modal closes, so the Status and Issued
+                    // columns are right the moment it does. Leaving the row stale
+                    // until a manual reload is the classic bug in this pattern.
+                    await load(); onChanged();
+                    return {
+                        sent: res.sent || 0,
+                        skipped: (res.skipped || []).length,
+                        failed: 0,
+                    };
+                }}
+            />
         </>
     );
 }
@@ -734,10 +1068,24 @@ function StepImport({ onChanged }) {
             </div>
 
             <div className="tprm-card" style={{ marginBottom: 18 }}>
-                <input
-                    ref={fileRef} type="file" accept=".xlsx,.zip" className="tprm-input"
-                    onChange={e => doPreview(e.target.files[0])} disabled={busy}
-                />
+                <div className="tprm-dropzone">
+                    <div className="tprm-dropzone-title">Drop the returned workbook or ZIP</div>
+                    <div className="tprm-dropzone-sub">
+                        Every workbook inside is matched by its hidden identity sheet, never by
+                        file name
+                    </div>
+                    <input
+                        ref={fileRef} type="file" accept=".xlsx,.zip" style={{ display: "none" }}
+                        onChange={e => doPreview(e.target.files[0])} disabled={busy}
+                    />
+                    <button
+                        className="tprm-btn primary"
+                        onClick={() => fileRef.current && fileRef.current.click()}
+                        disabled={busy}
+                    >
+                        {busy ? "Reading..." : "Choose file"}
+                    </button>
+                </div>
             </div>
 
             {busy && <div className="tprm-loading">Reading...</div>}
@@ -746,7 +1094,7 @@ function StepImport({ onChanged }) {
                 <>
                     <div className="tprm-page-actions" style={{ marginLeft: 0, marginBottom: 14 }}>
                         <button
-                            className="tprm-btn primary" onClick={commit}
+                            className="tprm-btn gold" onClick={commit}
                             disabled={busy || !preview.results.some(r => r.status === "ready")}
                         >
                             Import these responses

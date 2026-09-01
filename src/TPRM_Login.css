@@ -1,78 +1,254 @@
+/* Sign-in screen. Every measurement here is the one the toolkit is drawn at
+   in tprmpack/web/src/pages/Login.jsx: a fluid gradient panel on the left and
+   a fixed 520px form column on the right. */
+
 .tprm-login { display: flex; min-height: 100vh; }
 
+/* ------------------------------------------------------------ the panel */
 .tprm-login-panel {
     flex: 1;
-    min-width: 460px;
-    background: linear-gradient(150deg, #0D1B2A 0%, #16334F 100%);
+    min-width: 520px;
+    /* Fallback only. The live gradient is set inline per banner, from
+       banner.gradient_from / gradient_to - each panel has its own. */
+    background: linear-gradient(140deg, #0E1A2B 0%, #1E3350 100%);
+    transition: background .9s ease;
     color: #fff;
-    padding: 44px 56px 40px;
-    display: flex;
-    flex-direction: column;
+    padding: 46px 62px 52px;
+    position: relative;
+    overflow: hidden;
 }
 
-.tprm-login-brand { font-size: 17px; font-weight: 800; letter-spacing: 3px; }
+/* The lockup ships with black wordmark and a gold eagle on transparent. The
+   panel behind it is one of three dark gradients, so the black is invisible as
+   supplied - and on the olive banner (#3D2E08 to #8A6D12) a gold eagle would
+   disappear into the ground too. Flattening the whole mark to white is the one
+   treatment that holds on all three. Replace this filter the day a reversed
+   logo file exists; nothing else has to change. */
+.tprm-login-logomark {
+    display: block;
+    width: 300px;
+    max-width: 100%;
+    filter: brightness(0) invert(1);
+}
 
-.tprm-login-panelbody { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: 460px; }
+@media (max-width: 1000px) {
+    .tprm-login-logomark { width: 220px; }
+}
 
+/* Centred on the panel rather than stacked, so the headline sits on the
+   optical centre line whatever the subline length. */
+.tprm-login-panelbody {
+    position: absolute;
+    left: 62px;
+    right: 62px;
+    top: 50%;
+    transform: translateY(-52%);
+}
+
+/* Gold fill with near-black text, the way the source draws it. Gold as text
+   on any ground fails contrast, so it is only ever used as a fill. */
 .tprm-login-tag {
-    font-size: 9.5px;
-    letter-spacing: 3px;
-    color: #E8863A;
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 3.4px;
     font-weight: 700;
-    margin-bottom: 14px;
+    color: var(--tprm-gold-ink);
+    background: var(--tprm-gold);
+    padding: 6px 14px;
+    border-radius: 4px;
 }
 
-.tprm-login-headline { font-size: 33px; line-height: 1.2; font-weight: 700; margin: 0 0 16px; }
+.tprm-login-headline {
+    font-size: 44px;
+    font-weight: 700;
+    margin: 20px 0 0;
+    line-height: 1.14;
+    max-width: 620px;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+}
 
-.tprm-login-sub { font-size: 14.5px; line-height: 1.65; color: #A9BACD; margin: 0; }
+.tprm-login-sub {
+    font-size: 17px;
+    margin: 18px 0 0;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, .80);
+    max-width: 560px;
+}
 
-.tprm-login-dots { display: flex; gap: 7px; margin-bottom: 22px; }
-
-.tprm-login-dots button {
-    width: 26px;
+.tprm-login-rule {
     height: 3px;
-    border: none;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, .22);
-    cursor: pointer;
-    padding: 0;
+    width: 90px;
+    background: var(--tprm-gold);
+    margin-top: 28px;
 }
 
-.tprm-login-dots button.on { background: #E8863A; }
-
-.tprm-login-foot { font-size: 10px; letter-spacing: 2.4px; color: #5E728A; }
-
-.tprm-login-form {
-    flex: 0 0 460px;
+/* ------------------------------------------------------------- the dots */
+.tprm-login-dots {
+    position: absolute;
+    left: 62px;
+    bottom: 52px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: #FBFAF7;
-    padding: 30px;
+    gap: 10px;
 }
 
-.tprm-login-formbox { width: 100%; max-width: 340px; }
+.tprm-login-dots button {
+    width: 12px;
+    height: 5px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .30);
+    cursor: pointer;
+    padding: 0;
+    transition: all .45s;
+}
 
-.tprm-login-logo { width: 132px; margin-bottom: 26px; }
+.tprm-login-dots button.on { width: 38px; background: var(--tprm-gold); }
 
-.tprm-login-formbox h2 { font-size: 22px; font-weight: 700; color: #0D1B2A; margin: 0 0 6px; }
+.tprm-login-dots button:focus-visible {
+    outline: 2px solid var(--tprm-gold-2);
+    outline-offset: 3px;
+}
 
-.tprm-login-formsub { font-size: 13px; color: #5E6E80; margin: 0 0 24px; line-height: 1.5; }
+/* -------------------------------------------------------------- the form */
+.tprm-login-form {
+    flex: 0 0 520px;
+    width: 520px;
+    background: #fff;
+    padding: 0 52px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
 
-.tprm-login-err { font-size: 12px; color: #B0392E; margin-top: 5px; }
+.tprm-login-formbox { width: 100%; }
+
+/* Gold on white is 2.42:1 and fails at any size, so the product name is set
+   in ink and carries its identity through the tracking instead, with the gold
+   kept to the rule beneath it where it sits on nothing it has to be read on. */
+.tprm-login-formbrand {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 3.6px;
+    color: var(--tprm-ink);
+    margin-bottom: 24px;
+    padding-bottom: 14px;
+    border-bottom: 3px solid var(--tprm-gold);
+    display: inline-block;
+}
+
+.tprm-login-formbox h2 {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--tprm-body);
+    margin: 0;
+}
+
+.tprm-login-formsub {
+    font-size: 14px;
+    color: var(--tprm-muted);
+    margin: 7px 0 26px;
+    line-height: 1.5;
+}
+
+.tprm-login-err { font-size: 12px; color: var(--tprm-red); margin-top: 5px; }
+
+/* -------------------------------------------------------- two factor */
+
+.tprm-login-hint2 {
+    font-size: 13.5px;
+    color: var(--tprm-muted);
+    margin-bottom: 22px;
+}
+
+/* Six characters, widely tracked, so a mistyped digit is visible at a glance. */
+.tprm-mfa-code {
+    font-family: var(--tprm-mono);
+    font-size: 22px;
+    letter-spacing: 8px;
+    text-align: center;
+}
+
+/* The code and its clock share a line, so the countdown reads as a property
+   of the field rather than as a separate announcement. */
+.tprm-codehead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+/* Tabular figures: without them the width jumps every second as the digits
+   change and the whole label shivers. */
+.tprm-timer {
+    font-family: var(--tprm-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--tprm-muted);
+}
+
+/* Amber for the last thirty seconds, red once it is gone. Colour is the
+   secondary signal here - the number itself is the primary one. */
+.tprm-timer.low { color: var(--tprm-amber); }
+.tprm-timer.out { color: var(--tprm-red); }
+
+.tprm-login-steplinks {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* A link, but a real button: it is an action, and it has to be reachable by
+   keyboard with a focus ring the eye can find. */
+.tprm-linkbtn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--tprm-blue);
+    cursor: pointer;
+    text-align: left;
+    align-self: flex-start;
+}
+
+.tprm-linkbtn:hover:not(:disabled) { text-decoration: underline; }
+
+/* While the cooldown runs the button still says what it is waiting for, so it
+   is dimmed rather than hidden. */
+.tprm-linkbtn:disabled {
+    color: var(--tprm-faint);
+    cursor: default;
+}
+
+.tprm-linkbtn:focus-visible {
+    outline: 2px solid var(--tprm-blue);
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+
+/* The brand sits at the top-left of the panel, above the rotating banner. */
+.tprm-login-brandblock { position: relative; z-index: 1; }
 
 .tprm-login-note {
-    margin-top: 26px;
-    font-size: 11.5px;
-    color: #94A3B4;
+    font-size: 12.5px;
+    color: var(--tprm-faint);
     line-height: 1.6;
-    border-top: 1px solid #E9EDF2;
-    padding-top: 16px;
+    margin-top: 26px;
+    padding-top: 20px;
+    border-top: 1px solid var(--tprm-line);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
     .tprm-login { flex-direction: column; }
-    .tprm-login-panel { min-width: 0; padding: 28px; }
-    .tprm-login-headline { font-size: 24px; }
-    .tprm-login-form { flex: 1; }
+    .tprm-login-panel { min-width: 0; padding: 28px; min-height: 320px; }
+    .tprm-login-panelbody { position: static; transform: none; }
+    .tprm-login-dots { position: static; margin-top: 24px; }
+    .tprm-login-headline { font-size: 28px; }
+    .tprm-login-sub { font-size: 15px; }
+    .tprm-login-form { flex: 1; width: auto; padding: 32px 24px; }
 }

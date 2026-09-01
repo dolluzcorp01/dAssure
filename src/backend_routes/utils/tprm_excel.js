@@ -14,7 +14,7 @@ const fs = require('fs');
 
 const LOGO = path.join(__dirname, '..', '..', 'assets', 'img', 'logo_eagle.png');
 const NAVY = 'FF0D1B2A';
-const ORANGE = 'FFC94409';
+const GOLD = 'FFC9A227';
 const LIGHT = 'FFFBFAF7';
 const LINE = 'FFDCE3EB';
 

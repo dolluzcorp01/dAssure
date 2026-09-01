@@ -16,7 +16,7 @@ const STATE_LABEL = {
 
 function TPRMAssessments() {
     const navigate = useNavigate();
-    const { user } = useAccess();
+    const { user, hasPerm } = useAccess();
     const [rows, setRows] = useState(null);
     const [mine, setMine] = useState(false);
     const [state, setState] = useState("all");
@@ -36,7 +36,6 @@ function TPRMAssessments() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Assessments</h1>
                     <div className="tprm-page-sub">
                         Every supplier assessment in flight, across the clients you work on
                     </div>
@@ -116,9 +115,24 @@ function TPRMAssessments() {
                         ))}
                         {shown.length === 0 && (
                             <tr><td colSpan={10} className="tprm-empty">
-                                {mine
-                                    ? `Nothing is assigned to ${user ? user.emp_name : "you"} right now.`
-                                    : "No assessments yet. Tier some suppliers in Vendor Population first."}
+                                {mine ? (
+                                    `Nothing is assigned to ${user ? user.emp_name : "you"} right now.`
+                                ) : (
+                                    <>
+                                        No assessments yet. An assessment starts when a supplier is
+                                        tiered.
+                                        {hasPerm("vendor.manage") && (
+                                            <div style={{ marginTop: 12 }}>
+                                                <button
+                                                    className="tprm-btn primary sm"
+                                                    onClick={() => navigate("/Vendor_Population")}
+                                                >
+                                                    Go to Vendor Population
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
                             </td></tr>
                         )}
                     </tbody>

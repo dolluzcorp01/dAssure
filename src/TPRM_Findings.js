@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { apiJson, apiPut, apiPost } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
+import { FaFileExcel, FaFilePdf } from "react-icons/fa";
+import { exportThemedExcel, exportThemedPdf } from "./utils/tprmExport";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Findings.css";
 
@@ -53,11 +55,45 @@ function TPRMFindings() {
 
     const breached = rows.filter(r => Number(r.breached) === 1).length;
 
+    /* One column spec, both outputs. Excel and PDF differ only in how wide a
+       column may get, never in what is in it, which is why the two files look
+       like the same document. */
+    const EXPORT_COLUMNS = [
+        { key: "finding_ref", label: "Ref", width: 16, pdfWidth: 70 },
+        { key: "third_party_name", label: "Third party", width: 30, pdfWidth: 130 },
+        { key: "control_ref", label: "Control", width: 12, pdfWidth: 60 },
+        { key: "title", label: "Finding", width: 46, wrap: true, pdfWidth: 200 },
+        { key: "severity", label: "Severity", width: 13, pdfWidth: 62 },
+        { key: "status", label: "Status", width: 14, pdfWidth: 66 },
+        { key: "due_date", label: "Due", width: 13, pdfWidth: 62 },
+        { key: "days_left", label: "Days left", width: 11, align: "right", pdfWidth: 58 },
+    ];
+
+    const exportRows = () => rows.map(f => ({
+        finding_ref: f.finding_ref,
+        third_party_name: f.third_party_name,
+        control_ref: f.control_ref,
+        title: f.title || "",
+        severity: f.severity,
+        status: f.status,
+        due_date: f.due_date ? String(f.due_date).slice(0, 10) : "",
+        days_left: f.days_remaining,
+    }));
+
+    const exportArgs = () => ({
+        moduleName: "dTPRM",
+        sheetTitle: "Findings",
+        columns: EXPORT_COLUMNS,
+        rows: exportRows(),
+        filterLabel: [status === "all" ? "All statuses" : status,
+            severity === "all" ? "All severities" : severity].filter(Boolean).join(" · "),
+        statusKey: "severity",
+    });
+
     return (
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Findings</h1>
                     <div className="tprm-page-sub">
                         {breached > 0
                             ? `${breached} findings are past their agreed date.`
@@ -66,6 +102,20 @@ function TPRMFindings() {
                     </div>
                 </div>
                 <div className="tprm-page-actions">
+                    <button
+                        className="tprm-btn sm"
+                        disabled={rows.length === 0}
+                        onClick={() => exportThemedExcel({ ...exportArgs(), filename: "dTPRM_Findings.xlsx" })}
+                    >
+                        <FaFileExcel style={{ marginRight: 6 }} />Excel
+                    </button>
+                    <button
+                        className="tprm-btn sm"
+                        disabled={rows.length === 0}
+                        onClick={() => exportThemedPdf({ ...exportArgs(), filename: "dTPRM_Findings.pdf" })}
+                    >
+                        <FaFilePdf style={{ marginRight: 6 }} />PDF
+                    </button>
                     <select
                         className="tprm-select" style={{ width: 180 }}
                         value={status} onChange={e => setStatus(e.target.value)}

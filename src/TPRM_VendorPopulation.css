@@ -1,47 +1,220 @@
-/* The funnel strip above the step tabs. Shows where the population is
-   without needing a separate reporting page. */
+/* The funnel above the step rail. One row per stage: what it is called, how
+   wide it still is against the population received, and why it narrowed. */
 
-.tprm-funnel {
+.tprm-funnel-row {
     display: flex;
     align-items: center;
-    gap: 4px;
-    background: #fff;
-    border: 1px solid var(--tprm-line);
-    border-radius: 11px;
-    padding: 14px 18px;
-    margin-bottom: 18px;
-    overflow-x: auto;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
 }
 
-.tprm-funnel-node { text-align: center; min-width: 84px; flex: 1; }
+.tprm-funnel-row:last-child { border-bottom: none; }
 
-.tprm-funnel-n {
-    font-size: 21px;
+.tprm-funnel-label {
+    flex: 0 0 190px;
+    width: 190px;
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--tprm-body);
+}
+
+.tprm-funnel-track {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    background: var(--tprm-line-soft);
+    border-radius: 6px;
+}
+
+/* The count rides inside the bar, so the number and its length are read as
+   one thing. min-width keeps a zero-count bar wide enough to hold its own. */
+.tprm-funnel-fill {
+    height: 100%;
+    min-width: 42px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding-left: 14px;
+    font-size: 15px;
     font-weight: 800;
-    color: var(--tprm-navy);
-    line-height: 1.1;
+    transition: width .35s ease;
 }
 
-.tprm-funnel-l {
-    font-size: 9.5px;
-    letter-spacing: 1px;
-    text-transform: uppercase;
+.tprm-funnel-why {
+    flex: 0 0 340px;
+    width: 340px;
+    font-size: 12.5px;
     color: var(--tprm-faint);
-    font-weight: 700;
-    margin-top: 3px;
+    line-height: 1.45;
 }
 
-.tprm-funnel-arrow {
-    color: var(--tprm-line);
-    font-size: 22px;
-    line-height: 1;
-    flex: 0 0 auto;
+@media (max-width: 1100px) {
+    .tprm-funnel-why { display: none; }
+    .tprm-funnel-label { flex-basis: 150px; width: 150px; font-size: 13.5px; }
+}
+
+@media (max-width: 700px) {
+    .tprm-funnel-row { flex-wrap: wrap; gap: 8px; }
+    .tprm-funnel-label { flex: 1 0 100%; width: auto; }
 }
 
 .tprm-page code {
     background: #F1F4F7;
     padding: 1px 5px;
     border-radius: 4px;
-    font-size: 11.5px;
+    font-family: var(--tprm-mono);
+    font-size: 12px;
     color: var(--tprm-navy);
 }
+
+/* ---------------------------------------------- 1. the intake template */
+
+/* The columns table carries the substance, the email panel is the errand.
+   1.5 : 1 rather than an even split, so the table is not squeezed. */
+.tprm-intake {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+.tprm-intake-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--tprm-line-soft);
+}
+
+.tprm-intake-actions {
+    padding: 20px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+@media (max-width: 1100px) {
+    .tprm-intake { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------- 2. the upload target */
+
+/* A bare file input is a 200px grey rectangle. This is the thing a workbook
+   gets dragged onto, so it is drawn as a target. */
+.tprm-dropzone {
+    border: 2px dashed var(--tprm-line);
+    border-radius: 12px;
+    padding: 54px 20px;
+    text-align: center;
+    background: var(--tprm-wash);
+}
+
+.tprm-dropzone-title { font-size: 18px; font-weight: 600; }
+
+.tprm-dropzone-sub {
+    font-size: 13.5px;
+    color: var(--tprm-muted);
+    margin: 6px 0 20px;
+}
+
+/* ------------------------------------------------------- 3. classify */
+
+/* A 2% wash, not a colour. It marks the rows the rules were unsure about
+   without turning the table into a warning. */
+.tprm-row-attention td { background: #FFFCF2; }
+
+/* --------------------------------------------------- step furniture */
+
+/* The action that ends a step sits at the right edge, after the content the
+   decision is made from - not before it. */
+.tprm-step-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 16px;
+}
+
+/* In scope / Descope belong on one line: they are two halves of one choice,
+   and stacking them reads as two separate actions. */
+.tprm-decide { display: flex; gap: 6px; }
+
+/* A descoped supplier stays on the register but is no longer the work, so it
+   recedes rather than disappearing. */
+.tprm-row-muted td { opacity: .55; }
+
+/* Confidence as a quantity. A column of bars can be scanned for the short
+   ones without reading a single number. */
+.tprm-conf { display: flex; align-items: center; gap: 8px; }
+
+.tprm-conf-track {
+    width: 60px;
+    height: 6px;
+    background: var(--tprm-line-soft);
+    border-radius: 3px;
+    flex: 0 0 60px;
+    overflow: hidden;
+}
+
+.tprm-conf-fill { height: 100%; border-radius: 3px; }
+
+.tprm-conf .mono { font-size: 12.5px; }
+
+/* ------------------------------------------------ routes and states */
+
+/* A route is an alternative, not a stage. The coloured edge distinguishes the
+   two without numbering them, which would imply an order they do not have. */
+.tprm-route { border-top: 4px solid var(--tprm-navy); }
+
+.tprm-route-title { font-size: 17px; font-weight: 700; }
+
+.tprm-route-why {
+    font-size: 13.5px;
+    color: var(--tprm-muted);
+    line-height: 1.6;
+    margin: 8px 0 14px;
+    min-height: 62px;
+}
+
+/* Four numbers, read before any per-supplier row. */
+.tprm-statrow { display: flex; gap: 34px; flex-wrap: wrap; }
+
+.tprm-statrow-n {
+    font-size: 24px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+}
+
+.tprm-statrow-l { font-size: 12.5px; color: var(--tprm-muted); margin-top: 2px; }
+
+/* ------------------------------------------------------- row actions */
+
+.tprm-rowacts { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+/* Outline looks, solid acts. The pair reads as one choice, so they share a
+   size and only the weight differs. */
+.tprm-iconbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--tprm-line);
+    background: #fff;
+    color: var(--tprm-muted);
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.tprm-iconbtn:hover:not(:disabled) { border-color: var(--tprm-blue); color: var(--tprm-blue); }
+
+.tprm-iconbtn.solid {
+    background: var(--tprm-ink);
+    border-color: var(--tprm-ink);
+    color: #fff;
+}
+
+.tprm-iconbtn.solid:hover:not(:disabled) { background: var(--tprm-ink-2); border-color: var(--tprm-ink-2); }
+
+/* Disabled, never hidden - the tooltip carries the reason and the column
+   keeps its shape down the whole table. */
+.tprm-iconbtn:disabled { opacity: .4; cursor: not-allowed; }
+
+.tprm-iconbtn:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 2px; }

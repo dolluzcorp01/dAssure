@@ -5,7 +5,7 @@
 // 50 MB, so this works on the existing droplet instead of waiting for a
 // bigger one.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const PDFDocument = require("pdfkit");
 const path = require("path");
@@ -28,7 +28,7 @@ router.use(verifyJWT, tenantScope);
 
 const LOGO = path.join(__dirname, '..', 'assets', 'img', 'logo_eagle.png');
 const NAVY = '#0D1B2A';
-const ORANGE = '#C94409';
+const GOLD = '#C9A227';
 const MUTED = '#5E6E80';
 const LINE = '#DCE3EB';
 const BODY = '#3D4A5F';
@@ -74,7 +74,7 @@ async function buildReportPdf(a) {
         new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
         380, 70, { width: 170, align: 'right' });
 
-    doc.moveTo(48, 100).lineTo(547, 100).strokeColor(ORANGE).lineWidth(2).stroke();
+    doc.moveTo(48, 100).lineTo(547, 100).strokeColor(GOLD).lineWidth(2).stroke();
     doc.fontSize(19).fillColor(NAVY).text('Third Party Assessment Report', 48, 116);
     doc.fontSize(9).fillColor(MUTED)
         .text(`${tenant.tenant_name}  |  ${tp.sector_code} questionnaire  |  Classification: confidential`, 48, 142);
@@ -253,12 +253,12 @@ router.post("/assessments/:id/issue", requirePerm('report.issue'), async (req, r
             [a.tenant_id, a.assessment_id, reference, key, sha, recipients,
              req.body.cc || null, req.body.subject || null, req.emp_id]);
 
-        const tpl = mailer.templates.reportIssue({
+        const tpl = mailer.templates.renderReportIssueEmail({
             tenantName: a.tenant_name, vendorName: a.third_party_name, reference,
         });
         await mailer.queue({
             tenantId: a.tenant_id, to: recipients, cc: req.body.cc || null,
-            subject: req.body.subject || tpl.subject, body: tpl.body,
+            subject: req.body.subject || tpl.subject, body: tpl.text, html: tpl.html,
             attachmentKey: key, attachmentName: `${reference}.pdf`,
             kind: 'report', empId: req.emp_id,
         });

@@ -1,0 +1,115 @@
+/* The preview is the point of this screen: a pair of hex codes tells you
+   nothing about how they look together, so show the panel at real size. */
+
+.tprm-banner-preview {
+    border-radius: 10px;
+    padding: 26px 28px 30px;
+    color: #fff;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 18px;
+    transition: background .35s ease;
+}
+
+.tprm-banner-previewtag {
+    font-size: 9.5px;
+    letter-spacing: 3px;
+    font-weight: 700;
+    color: var(--tprm-gold);
+    min-height: 12px;
+    text-transform: uppercase;
+}
+
+.tprm-banner-previewhead {
+    font-size: 27px;
+    font-weight: 700;
+    line-height: 1.2;
+    max-width: 30ch;
+}
+
+.tprm-banner-previewsub {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: #A9BACD;
+    max-width: 62ch;
+}
+
+/* ------------------------------------------------------------- add form */
+.tprm-banner-add {
+    background: #fff;
+    border: 1px solid var(--tprm-line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+}
+
+.tprm-banner-addgrid {
+    display: grid;
+    grid-template-columns: 1fr 2fr auto auto;
+    gap: 14px;
+    align-items: start;
+}
+
+.tprm-banner-addgrid .tprm-field.narrow { width: 66px; }
+
+.tprm-banner-addfoot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 6px;
+}
+
+/* --------------------------------------------------------------- table */
+.tprm-banner-table td { vertical-align: middle; }
+
+.tprm-banner-table tr.selected td { background: #FFF8F3; }
+
+.tprm-banner-table .tprm-input.sm,
+.tprm-banner-table .tprm-textarea.sm {
+    font-size: 12.5px;
+    padding: 6px 8px;
+    min-width: 120px;
+}
+
+.tprm-banner-table .tprm-textarea.sm {
+    min-height: 54px;
+    min-width: 220px;
+    resize: vertical;
+}
+
+.tprm-banner-table .tprm-input.sm.order { min-width: 0; width: 62px; }
+
+.tprm-color {
+    width: 40px;
+    height: 30px;
+    padding: 2px;
+    border: 1px solid var(--tprm-line);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+}
+
+.tprm-color:disabled { cursor: not-allowed; opacity: .6; }
+
+.tprm-banner-rowactions {
+    display: flex;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+    .tprm-banner-addgrid { grid-template-columns: 1fr 1fr; }
+    .tprm-banner-previewhead { font-size: 22px; }
+}
+
+/* State and its switch on one line: what it is now, and the one action that
+   changes it. A checkbox said neither at a glance. */
+.tprm-banner-state {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+}

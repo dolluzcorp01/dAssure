@@ -5,6 +5,13 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicon-32.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- Poppins is the face the toolkit is drawn in. The source names it in
+         its font stack but never loads it, so it silently fell back to Segoe UI.
+         Loading it here is what makes the app match the design. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" />
     <meta name="theme-color" content="#0D1B2A" />
     <meta name="description" content="Dolluz Corp TPRM Toolkit - internal use only" />
     <meta name="robots" content="noindex, nofollow" />

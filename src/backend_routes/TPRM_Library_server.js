@@ -6,7 +6,7 @@
 // and publish it. Assessments already under way stay bound to the version they
 // started on, so a report that was issued last quarter still says what it said.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');

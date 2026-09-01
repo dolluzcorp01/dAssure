@@ -56,7 +56,6 @@ function TPRMQuestionBank() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Question bank</h1>
                     <div className="tprm-page-sub">
                         A published version is immutable. To change a question, create a draft,
                         edit it, and publish. Reports already issued never change underneath you.
@@ -85,13 +84,36 @@ function TPRMQuestionBank() {
 
             {data && data.versions.length === 0 && (
                 <div className="tprm-note warn">
-                    No instrument exists for this sector yet. Create a draft version to start one.
-                    Until a version is published, suppliers in this sector cannot be assessed.
+                    No instrument exists for this sector yet. Until a version is published,
+                    suppliers in this sector cannot be assessed.
+                    {hasPerm("instrument.author") && (
+                        <div style={{ marginTop: 12 }}>
+                            <button className="tprm-btn primary sm" onClick={newDraft} disabled={busy}>
+                                Create the first draft version
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
             {data && data.versions.length > 0 && (
                 <>
+                    <div className="tprm-grid k4" style={{ marginBottom: 18 }}>
+                        {[
+                            ["Tiering questions", tiering.length, "var(--tprm-blue)"],
+                            ["Control questions", controls.length, "var(--tprm-green)"],
+                            ["Standards mapped", data.standards.length, "var(--tprm-gold)"],
+                            ["Version", "v" + data.current.version_no, "var(--tprm-ink)"],
+                        ].map(([label, value, colour]) => (
+                            <div className="tprm-card tprm-kpi" key={label} style={{ borderTopColor: colour }}>
+                                <div className="tprm-kpi-value" style={{ color: colour, marginTop: 0 }}>
+                                    {value}
+                                </div>
+                                <div className="tprm-kpi-sub">{label}</div>
+                            </div>
+                        ))}
+                    </div>
+
                     <div className="tprm-card flush" style={{ marginBottom: 18 }}>
                         <div className="tprm-card-head"><div className="tprm-card-title">VERSIONS</div></div>
                         <table className="tprm-table">

@@ -50,14 +50,13 @@ function TPRMMethodology() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Methodology</h1>
                     <div className="tprm-page-sub">
                         {tenant ? tenant.tenant_name : ""} &nbsp;|&nbsp; These dials are per client.
                         Assessments already approved keep the scores they were approved on.
                     </div>
                 </div>
                 <div className="tprm-page-actions">
-                    <button className="tprm-btn primary" onClick={save} disabled={busy || !balanced}>
+                    <button className="tprm-btn gold" onClick={save} disabled={busy || !balanced}>
                         {busy ? "Saving..." : "Save methodology"}
                     </button>
                 </div>

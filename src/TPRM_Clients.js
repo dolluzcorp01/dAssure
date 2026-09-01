@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { apiJson, apiPost } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Clients.css";
 
 function TPRMClients() {
-    const { hasPerm, refetch } = useAccess();
+    const { hasPerm, refetch, setupMode } = useAccess();
+    const location = useLocation();
+    const navigate = useNavigate();
     const [rows, setRows] = useState(null);
     const [sectors, setSectors] = useState([]);
     const [form, setForm] = useState(null);
@@ -16,6 +19,17 @@ function TPRMClients() {
     }, []);
 
     useEffect(() => { load(); }, [load]);
+
+    // Arriving from a "create a client" button anywhere else opens the form
+    // straight away - landing on the page and having to find the button again
+    // is the same dead end one step further along. The flag is then cleared so
+    // a refresh or a Back does not reopen it.
+    useEffect(() => {
+        if (location.state && location.state.openForm) {
+            setForm({ code: "", name: "", sector: "OILGAS" });
+            navigate(location.pathname, { replace: true, state: {} });
+        }
+    }, [location, navigate]);
     useEffect(() => { apiJson("/api/tprm/library/sectors").then(setSectors).catch(() => {}); }, []);
 
     const create = async () => {
@@ -26,10 +40,22 @@ function TPRMClients() {
             });
             setForm(null);
             load();
-            // The creator becomes Engagement Manager on the new client, so the
-            // client list in the sidebar has to be reloaded too.
+            // The creator gets a role on the client they just made - Practice
+            // Head on the very first one, Engagement Manager after that - so the
+            // sidebar and the whole permission set have to be reloaded.
+            const wasFirstRun = setupMode;
             await refetch();
-            tprmAlert.success("Client onboarded");
+            if (wasFirstRun) {
+                // First run ends here. Say what the new Practice Head can now do,
+                // rather than leaving them to find it.
+                tprmAlert.info(
+                    "You are the Practice Head",
+                    `${form.name} is set up and you now hold every permission on it. `
+                    + "Next: add your team under Configuration, Users and Roles, or start "
+                    + "loading suppliers under Vendor Population.");
+            } else {
+                tprmAlert.success("Client onboarded");
+            }
         } catch (e) {
             tprmAlert.apiError(e);
         } finally {
@@ -41,6 +67,17 @@ function TPRMClients() {
 
     return (
         <div className="tprm-page">
+            {setupMode && (
+                <div className="tprm-note" style={{ marginBottom: 16 }}>
+                    <strong>First run.</strong> Nobody has been assigned to a client yet, so
+                    you are being let in as a dAdmin administrator to get things started.
+                    Onboard your first client below - you become its Practice Head
+                    automatically, and can then grant everyone else their roles from
+                    Configuration &rarr; Users and Roles. This notice disappears once
+                    that first client exists.
+                </div>
+            )}
+
             <div className="tprm-page-head">
                 <div>
                     <h1 className="tprm-page-title">Clients</h1>
@@ -51,8 +88,11 @@ function TPRMClients() {
                 </div>
                 {hasPerm("client.create") && (
                     <div className="tprm-page-actions">
+                        {/* Gold is the confirming action across the product -
+                            Import, Approve, Save methodology, Onboard. Navy
+                            navigates; gold commits. This one commits. */}
                         <button
-                            className="tprm-btn primary"
+                            className="tprm-btn gold"
                             onClick={() => setForm({ code: "", name: "", sector: "OILGAS" })}
                         >
                             Onboard client
@@ -65,7 +105,7 @@ function TPRMClients() {
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>Code</th><th>Client</th><th>Their sector</th>
+                            <th>Code</th><th>Client</th><th>Primary sector</th>
                             <th>Third parties</th><th>Open findings</th><th>Status</th>
                         </tr>
                     </thead>
@@ -97,16 +137,35 @@ function TPRMClients() {
                 must never discard a part-filled form. Cancel is the way out. */}
             {form && (
                 <div className="tprm-modal-backdrop">
-                    <div className="tprm-modal">
+                    <div
+                        className="tprm-modal"
+                        onKeyDown={e => {
+                            if (e.key !== "Enter" || e.target.tagName === "TEXTAREA") return;
+                            if (saving || !form.code || !form.name) return;
+                            e.preventDefault();
+                            create();
+                        }}
+                    >
                         <div className="tprm-modal-head">
-                            <div className="tprm-modal-title">Onboard a client</div>
-                            <div className="tprm-modal-sub">Nothing is written until you confirm</div>
+                            <div>
+                                <div className="tprm-modal-title">Onboard a client</div>
+                                <div className="tprm-modal-sub">Nothing is written until you confirm</div>
+                            </div>
+                            <button
+                                className="tprm-modal-close"
+                                aria-label="Close"
+                                onClick={() => setForm(null)}
+                                disabled={saving}
+                            >
+                                &times;
+                            </button>
                         </div>
                         <div className="tprm-modal-body">
                             <div className="tprm-field">
                                 <label>Legal entity name</label>
                                 <input
                                     className="tprm-input"
+                                    autoFocus
                                     value={form.name}
                                     placeholder="Petroleum Development Oman"
                                     onChange={e => setForm({ ...form, name: e.target.value })}
@@ -126,7 +185,7 @@ function TPRMClients() {
                                 </div>
                             </div>
                             <div className="tprm-field">
-                                <label>Their primary sector</label>
+                                <label>Primary sector</label>
                                 <select
                                     className="tprm-select"
                                     value={form.sector}
@@ -147,7 +206,7 @@ function TPRMClients() {
                                 Cancel
                             </button>
                             <button
-                                className="tprm-btn primary"
+                                className="tprm-btn gold"
                                 onClick={create}
                                 disabled={saving || !form.code || !form.name}
                             >

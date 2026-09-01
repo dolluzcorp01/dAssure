@@ -13,6 +13,11 @@ build/
 # Uploaded evidence and generated workbooks/reports. Data, not source.
 TPRM_file_uploads/
 
+# Exports the app hands the browser land wherever the download path points,
+# which is often the repo root. They are output of a test run, not source.
+dTPRM_*.pdf
+dTPRM_*.xlsx
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

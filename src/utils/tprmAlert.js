@@ -3,11 +3,11 @@
 
 import Swal from "sweetalert2";
 
-const ORANGE = "#C94409";
+const GOLD = "#8A6D12";
 const NAVY = "#0D1B2A";
 
 const base = {
-    confirmButtonColor: ORANGE,
+    confirmButtonColor: GOLD,
     cancelButtonColor: "#7A8798",
     customClass: { popup: "tprm-swal" },
     // A click on the backdrop must not dismiss a dialog. Several of these ask

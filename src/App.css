@@ -1,40 +1,46 @@
 /* Shared page chrome. Every dTprm page uses these classes so the pages
-   themselves only carry what is genuinely their own. */
+   themselves only carry what is genuinely their own.
+
+   Every measurement below is the one the toolkit is drawn at in
+   tprmpack/web/src/lib/ui.jsx - Btn, Field, Sel, Card, Note, Lab, Chip, Th,
+   Td, Modal and Spinner - so the app and the preview render the same screen. */
 
 .tprm-layout { display: flex; min-height: 100vh; }
 
+/* The sidebar is fixed at 244px, so the column beside it is simply inset by
+   that much. The top bar sticks to the top of this column. */
 .tprm-main {
     flex: 1;
     min-width: 0;
-    transition: padding-left .18s ease;
+    padding-left: 244px;
+    display: flex;
+    flex-direction: column;
 }
 
-.tprm-main.full { padding-left: 240px; }
-.tprm-main.icon-only { padding-left: 56px; }
-
 /* ------------------------------------------------------------- page */
-.tprm-page { padding: 22px 26px 60px; max-width: 1560px; }
+.tprm-page { padding: 24px 26px 70px; max-width: 1560px; }
 
 .tprm-page-head {
     display: flex;
     align-items: flex-start;
     gap: 16px;
-    margin-bottom: 20px;
+    margin-bottom: 18px;
     flex-wrap: wrap;
 }
 
-.tprm-page-title { font-size: 23px; font-weight: 700; color: var(--tprm-navy); margin: 0; }
+.tprm-page-title { font-size: 24px; font-weight: 700; color: var(--tprm-body); margin: 0; }
 
-.tprm-page-sub { font-size: 13px; color: var(--tprm-muted); margin-top: 4px; }
+.tprm-page-sub { font-size: 14px; color: var(--tprm-muted); margin-top: 4px; }
 
-.tprm-page-actions { margin-left: auto; display: flex; gap: 9px; flex-wrap: wrap; }
+.tprm-page-actions { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; }
 
 /* ------------------------------------------------------------ cards */
 .tprm-card {
-    background: #fff;
+    background: var(--tprm-card);
     border: 1px solid var(--tprm-line);
-    border-radius: 11px;
-    padding: 18px;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(14, 26, 43, .06);
+    padding: 22px;
 }
 
 .tprm-card.flush { padding: 0; overflow: hidden; }
@@ -42,17 +48,29 @@
 .tprm-card-head {
     padding: 13px 18px;
     border-bottom: 1px solid var(--tprm-line-soft);
-    background: #FAFBFC;
+    background: var(--tprm-wash);
     display: flex;
     align-items: center;
     gap: 12px;
 }
 
+/* Lab. Every section heading in the source is this one label: small, wide,
+   faint and upper case, sitting above the thing it names. */
+.tprm-lab,
 .tprm-card-title {
-    font-size: 12.5px;
-    font-weight: 800;
-    letter-spacing: .5px;
+    font-size: 10.5px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--tprm-faint);
+    font-weight: 700;
+}
+
+/* The one heavier variant: the control-area header inside an assessment. */
+.tprm-card-title.domain {
+    font-size: 13px;
+    letter-spacing: .6px;
     color: var(--tprm-navy);
+    font-weight: 800;
 }
 
 .tprm-grid { display: grid; gap: 16px; }
@@ -67,77 +85,112 @@
 
 /* ------------------------------------------------------------- kpi */
 .tprm-kpi { border-top: 4px solid var(--tprm-navy); }
+
 .tprm-kpi-label {
-    font-size: 9.5px;
-    letter-spacing: 1.2px;
+    font-size: 10.5px;
+    letter-spacing: 1.3px;
     text-transform: uppercase;
     color: var(--tprm-faint);
     font-weight: 700;
 }
-.tprm-kpi-value { font-size: 28px; font-weight: 800; margin-top: 5px; line-height: 1.1; }
-.tprm-kpi-sub { font-size: 11.5px; color: var(--tprm-muted); margin-top: 3px; }
+
+.tprm-kpi-value { font-size: 26px; font-weight: 800; margin-top: 5px; line-height: 1.1; }
+.tprm-kpi-sub { font-size: 13px; color: var(--tprm-muted); margin-top: 3px; }
+
+/* The programme headline numbers on the dashboard are drawn one size up. */
+.tprm-kpi.lg .tprm-kpi-value { font-size: 32px; }
 
 /* ----------------------------------------------------------- table */
 .tprm-table { width: 100%; border-collapse: collapse; }
 
 .tprm-table th {
     text-align: left;
-    font-size: 9.5px;
-    letter-spacing: 1px;
+    font-size: 10.5px;
+    letter-spacing: 1.3px;
     text-transform: uppercase;
     color: var(--tprm-faint);
     font-weight: 700;
-    padding: 11px 14px;
+    padding: 13px 16px;
     border-bottom: 1px solid var(--tprm-line);
-    background: #FAFBFC;
+    background: var(--tprm-wash);
     white-space: nowrap;
 }
 
 .tprm-table td {
-    padding: 11px 14px;
+    padding: 14px 16px;
     border-bottom: 1px solid var(--tprm-line-soft);
-    font-size: 13px;
-    vertical-align: top;
+    font-size: 14.5px;
+    vertical-align: middle;
 }
 
-.tprm-table tbody tr:hover { background: #FAFBFC; }
+.tprm-table tbody tr:hover { background: var(--tprm-wash); }
 .tprm-table tr.danger { background: #FDF4F2; }
-.tprm-table .num { font-family: Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+.tprm-table .num,
+.tprm-table .mono,
+.mono { font-family: var(--tprm-mono); font-variant-numeric: tabular-nums; }
+
+/* A reference is one token. Broken over two lines it stops being scannable
+   and starts looking like two values, so it never wraps - the column widens
+   or the table scrolls instead. Applies to every table in the product. */
+.tprm-table td.num,
+.tprm-table td.mono { white-space: nowrap; }
 
 /* --------------------------------------------------------- controls */
 .tprm-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     border: 1px solid var(--tprm-line);
     background: #fff;
     color: var(--tprm-body);
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-size: 13px;
+    border-radius: 7px;
+    padding: 11px 20px;
+    font-size: 14.5px;
+    font-weight: 600;
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
 }
 
-.tprm-btn:hover { border-color: #C7D2DE; background: #FAFBFC; }
-.tprm-btn:disabled { opacity: .5; cursor: not-allowed; }
+.tprm-btn:hover { border-color: #C7D2DE; background: var(--tprm-wash); }
+.tprm-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.tprm-btn.wide { width: 100%; }
 
 .tprm-btn.primary {
-    background: var(--tprm-orange-text);
-    border-color: var(--tprm-orange-text);
+    background: var(--tprm-ink);
+    border-color: var(--tprm-ink);
     color: #fff;
 }
-.tprm-btn.primary:hover { background: #B03C08; border-color: #B03C08; }
+
+.tprm-btn.primary:hover { background: var(--tprm-ink-2); border-color: var(--tprm-ink-2); }
+
+/* The confirming action: gold fill, near-black text, as the source draws it. */
+.tprm-btn.gold {
+    background: var(--tprm-gold);
+    border-color: var(--tprm-gold);
+    color: var(--tprm-gold-ink);
+    font-weight: 700;
+}
+
+.tprm-btn.gold:hover { background: var(--tprm-gold-2); border-color: var(--tprm-gold-2); }
+
+.tprm-btn.danger { background: #fff; color: var(--tprm-red); border-color: var(--tprm-red); }
+.tprm-btn.danger:hover { background: #FDF4F2; border-color: var(--tprm-red); }
 
 .tprm-btn.navy { background: var(--tprm-navy); border-color: var(--tprm-navy); color: #fff; }
-.tprm-btn.navy:hover { background: #16283C; }
+.tprm-btn.navy:hover { background: var(--tprm-ink-2); border-color: var(--tprm-ink-2); }
 
-.tprm-btn.sm { padding: 5px 10px; font-size: 12px; border-radius: 6px; }
+.tprm-btn.sm { padding: 7px 13px; font-size: 13px; border-radius: 7px; }
 
 .tprm-input, .tprm-select, .tprm-textarea {
     width: 100%;
     border: 1px solid var(--tprm-line);
-    border-radius: 8px;
-    padding: 8px 11px;
-    font-size: 13px;
+    border-radius: 7px;
+    padding: 11px 13px;
+    font-size: 14.5px;
     font-family: inherit;
     outline: none;
     background: #fff;
@@ -145,57 +198,113 @@
 }
 
 .tprm-input:focus, .tprm-select:focus, .tprm-textarea:focus {
-    border-color: var(--tprm-orange);
-    box-shadow: 0 0 0 3px rgba(232, 82, 10, .12);
+    border-color: var(--tprm-gold);
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .22);
 }
 
-.tprm-textarea { min-height: 76px; resize: vertical; }
+.tprm-input.err, .tprm-select.err, .tprm-textarea.err { border-color: var(--tprm-red); }
 
-.tprm-field { margin-bottom: 14px; }
+/* The compact pair, for a control that sits inside a dense table row. */
+.tprm-input.sm, .tprm-select.sm, .tprm-textarea.sm {
+    padding: 6px 9px;
+    font-size: 13px;
+    border-radius: 6px;
+}
+
+.tprm-textarea { min-height: 110px; resize: vertical; }
+.tprm-textarea.sm { min-height: 62px; }
+
+.tprm-field { margin-bottom: 16px; }
 
 .tprm-field label {
     display: block;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .4px;
-    text-transform: uppercase;
-    color: var(--tprm-muted);
-    margin-bottom: 5px;
-}
-
-.tprm-hint { font-size: 11.5px; color: var(--tprm-faint); margin-top: 4px; }
-
-/* ------------------------------------------------------------ chips */
-.tprm-chip {
-    display: inline-block;
-    padding: 2px 9px;
-    border-radius: 20px;
     font-size: 10.5px;
     font-weight: 700;
-    letter-spacing: .3px;
-    white-space: nowrap;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--tprm-faint);
+    margin-bottom: 6px;
 }
 
-.tprm-chip.green { background: #E6F4EE; color: var(--tprm-green); }
-.tprm-chip.amber { background: #FBF1DE; color: #8A5E10; }
-.tprm-chip.red { background: #FBECEA; color: var(--tprm-red); }
-.tprm-chip.blue { background: #E8F0FA; color: var(--tprm-blue); }
-.tprm-chip.grey { background: #F1F4F7; color: var(--tprm-muted); }
+.tprm-field label .req { color: var(--tprm-red); }
+
+.tprm-hint { font-size: 12px; color: var(--tprm-faint); margin-top: 5px; }
+.tprm-err { font-size: 12px; color: var(--tprm-red); margin-top: 5px; }
+
+/* ------------------------------------------------------------ chips */
+/* A chip is a solid fill with white text, the way the source draws every one
+   of them. Unqualified, it is the neutral pill the source falls back to. */
+.tprm-chip {
+    display: inline-block;
+    padding: 5px 12px;
+    border-radius: 14px;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    white-space: nowrap;
+    background: #F1F4F7;
+    color: var(--tprm-muted);
+    border: 1px solid var(--tprm-line);
+}
+
+.tprm-chip.green { background: var(--tprm-green); border-color: var(--tprm-green); color: #fff; }
+.tprm-chip.amber { background: var(--tprm-amber); border-color: var(--tprm-amber); color: #fff; }
+.tprm-chip.red { background: var(--tprm-red); border-color: var(--tprm-red); color: #fff; }
+.tprm-chip.blue { background: var(--tprm-blue); border-color: var(--tprm-blue); color: #fff; }
+.tprm-chip.purple { background: var(--tprm-purple); border-color: var(--tprm-purple); color: #fff; }
+.tprm-chip.navy { background: var(--tprm-ink); border-color: var(--tprm-ink); color: #fff; }
+.tprm-chip.faint { background: var(--tprm-faint); border-color: var(--tprm-faint); color: #fff; }
+.tprm-chip.grey { background: #F1F4F7; color: var(--tprm-muted); border-color: var(--tprm-line); }
 
 /* ------------------------------------------------------------ notes */
 .tprm-note {
-    border-left: 3px solid var(--tprm-blue);
-    background: #F3F8FD;
-    padding: 11px 14px;
-    font-size: 12.5px;
-    color: var(--tprm-body);
+    background: #FCF6E4;
+    border: 1px solid #E9D9A4;
+    border-left: 4px solid var(--tprm-gold);
+    padding: 13px 16px;
+    font-size: 13.5px;
+    color: #7C6113;
     border-radius: 0 8px 8px 0;
-    line-height: 1.55;
+    line-height: 1.6;
 }
 
-.tprm-note.warn { border-left-color: var(--tprm-amber); background: #FDF8EC; }
-.tprm-note.danger { border-left-color: var(--tprm-red); background: #FDF3F1; }
-.tprm-note.good { border-left-color: var(--tprm-green); background: #F0F8F4; }
+.tprm-note.info,
+.tprm-note.blue {
+    background: #F2F7FD;
+    border-color: #CFE0F2;
+    border-left-color: var(--tprm-blue);
+    color: #1E4372;
+}
+
+.tprm-note.good,
+.tprm-note.green {
+    background: #F1F9F6;
+    border-color: #C6E5DA;
+    border-left-color: var(--tprm-green);
+    color: #14563F;
+}
+
+/* warn is the default gold tone; danger is the source's red tone. Each sets
+   all four values, so none of them half-inherits another tone's text colour. */
+.tprm-note.warn {
+    background: #FCF6E4;
+    border-color: #E9D9A4;
+    border-left-color: var(--tprm-amber);
+    color: #7C6113;
+}
+
+.tprm-note.danger {
+    background: #FDF4F2;
+    border-color: #F0CFC9;
+    border-left-color: var(--tprm-red);
+    color: #8E2C22;
+}
+
+/* The API error code, set beside the message the way ErrorBox sets it:
+   monospaced, small and stepped back. */
+.tprm-note .code { font-family: var(--tprm-mono); font-size: 11.5px; opacity: .75; }
+.tprm-note ul { margin: 8px 0 0 18px; padding: 0; }
+.tprm-note li { margin-bottom: 2px; }
 
 .tprm-empty {
     padding: 44px 20px;
@@ -204,106 +313,145 @@
     font-size: 13px;
 }
 
-.tprm-loading { padding: 44px; text-align: center; color: var(--tprm-faint); font-size: 13px; }
+.tprm-loading { padding: 40px; text-align: center; color: var(--tprm-muted); font-size: 14px; }
 
 /* ----------------------------------------------------------- modal */
 .tprm-modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(13, 27, 42, .48);
+    background: rgba(14, 26, 43, .55);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
-    padding: 20px;
+    z-index: 200;
+    padding: 24px;
 }
 
 .tprm-modal {
     background: #fff;
-    border-radius: 12px;
-    width: 100%;
-    max-width: 540px;
-    max-height: 88vh;
+    border-radius: 14px;
+    width: 620px;
+    max-width: 100%;
+    max-height: 90vh;
     overflow-y: auto;
+    box-shadow: 0 26px 70px rgba(0, 0, 0, .34);
 }
 
-.tprm-modal.wide { max-width: 860px; }
+.tprm-modal.wide { width: 900px; }
 
 .tprm-modal-head {
-    padding: 17px 20px;
-    border-bottom: 1px solid var(--tprm-line-soft);
+    padding: 20px 26px;
+    border-bottom: 1px solid var(--tprm-line);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
 }
 
-.tprm-modal-title { font-size: 16px; font-weight: 700; color: var(--tprm-navy); }
-.tprm-modal-sub { font-size: 12px; color: var(--tprm-muted); margin-top: 3px; }
-.tprm-modal-body { padding: 20px; }
+.tprm-modal-title { font-size: 19px; font-weight: 700; color: var(--tprm-body); }
+.tprm-modal-sub { font-size: 13.5px; color: var(--tprm-muted); margin-top: 4px; }
+
+.tprm-modal-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--tprm-faint);
+    cursor: pointer;
+    padding: 0 2px;
+}
+
+.tprm-modal-close:hover { color: var(--tprm-body); }
+.tprm-modal-close:disabled { opacity: .45; cursor: not-allowed; }
+
+.tprm-modal-body { padding: 22px 26px; }
 
 .tprm-modal-foot {
-    padding: 14px 20px;
-    border-top: 1px solid var(--tprm-line-soft);
+    padding: 16px 26px;
+    border-top: 1px solid var(--tprm-line);
     display: flex;
-    gap: 9px;
+    gap: 10px;
     justify-content: flex-end;
-    background: #FAFBFC;
+    background: var(--tprm-wash);
+    border-radius: 0 0 14px 14px;
 }
 
 /* ----------------------------------------------------------- stepper */
+/* The pipeline rail: numbered chips joined by arrows, on a card of its own.
+   The number carries the state, gold when you are standing on it. */
 .tprm-steps {
     display: flex;
-    gap: 6px;
-    border-bottom: 1px solid var(--tprm-line);
+    align-items: center;
+    gap: 4px;
+    background: #FAFBFD;
+    border: 1px solid var(--tprm-line);
+    border-radius: 10px;
+    padding: 10px 14px;
     margin-bottom: 20px;
     overflow-x: auto;
 }
 
 .tprm-step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
     border: none;
-    background: transparent;
-    padding: 11px 15px;
-    font-size: 12.5px;
-    color: var(--tprm-muted);
+    background: none;
+    padding: 2px 10px;
     cursor: pointer;
-    border-bottom: 2px solid transparent;
     white-space: nowrap;
     font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--tprm-muted);
 }
 
 .tprm-step:hover { color: var(--tprm-navy); }
 
-.tprm-step.active {
-    color: var(--tprm-orange-text);
-    border-bottom-color: var(--tprm-orange-text);
-    font-weight: 700;
-}
+.tprm-step.active { color: var(--tprm-ink); font-weight: 700; }
 
 .tprm-step .n {
-    display: inline-block;
-    width: 17px;
-    height: 17px;
-    line-height: 17px;
-    text-align: center;
-    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border-radius: 10px;
     background: var(--tprm-line);
     color: var(--tprm-muted);
-    font-size: 10px;
-    font-weight: 700;
-    margin-right: 7px;
+    font-size: 11px;
+    font-weight: 800;
 }
 
-.tprm-step.active .n { background: var(--tprm-orange-text); color: #fff; }
+.tprm-step.active .n { background: var(--tprm-gold); color: var(--tprm-gold-ink); }
 .tprm-step.done .n { background: var(--tprm-green); color: #fff; }
+
+.tprm-step:focus-visible {
+    outline: none;
+    border-radius: 7px;
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .30);
+}
+
+.tprm-step-arrow {
+    flex: 0 0 auto;
+    color: var(--tprm-line);
+    font-size: 14px;
+    line-height: 1;
+    user-select: none;
+}
 
 /* ------------------------------------------------ password reveal toggle */
 /* The eye sits inside the field, so the input keeps its full width and the
    button never shifts the layout when the icon swaps. */
 .tprm-passwrap { position: relative; }
 
-.tprm-passwrap .tprm-input { padding-right: 38px; }
+.tprm-passwrap .tprm-input { padding-right: 40px; }
 
 .tprm-passtoggle {
     position: absolute;
     top: 50%;
-    right: 6px;
+    right: 7px;
     transform: translateY(-50%);
     display: flex;
     align-items: center;
@@ -323,6 +471,35 @@
 
 .tprm-passtoggle:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(232, 82, 10, .25);
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .35);
     color: var(--tprm-body);
 }
+
+/* ------------------------------------------------- empty state with a way out */
+/* An empty screen must always say what to do next, and give the control that
+   does it where the person actually is. */
+.tprm-empty-state {
+    max-width: 560px;
+    margin: 48px auto;
+    padding: 30px 32px;
+    background: #fff;
+    border: 1px solid var(--tprm-line);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(14, 26, 43, .06);
+    text-align: center;
+}
+
+.tprm-empty-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--tprm-body);
+    margin-bottom: 10px;
+}
+
+.tprm-empty-body {
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--tprm-muted);
+}
+
+.tprm-empty-actions { margin-top: 20px; }

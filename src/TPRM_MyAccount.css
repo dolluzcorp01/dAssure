@@ -1,0 +1,23 @@
+/* Identity is four short facts, so a grid rather than a table. */
+.tprm-account-id {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 20px;
+    padding: 20px 22px;
+}
+
+.tprm-account-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 1.3px;
+    text-transform: uppercase;
+    color: var(--tprm-faint);
+    margin-bottom: 5px;
+}
+
+.tprm-account-value { font-size: 14.5px; color: var(--tprm-body); }
+
+.tprm-account-value.mono {
+    font-family: Consolas, 'SF Mono', Menlo, monospace;
+    font-size: 13.5px;
+}

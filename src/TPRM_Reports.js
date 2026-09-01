@@ -44,7 +44,6 @@ function TPRMReports() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Reports</h1>
                     <div className="tprm-page-sub">
                         Every issued report is recorded with its recipients and a SHA-256 of the
                         exact file that was sent.
@@ -151,17 +150,36 @@ function TPRMReports() {
                 must never discard a part-filled form. Cancel is the way out. */}
             {issuing && (
                 <div className="tprm-modal-backdrop">
-                    <div className="tprm-modal">
+                    <div
+                        className="tprm-modal"
+                        onKeyDown={e => {
+                            if (e.key !== "Enter" || e.target.tagName === "TEXTAREA") return;
+                            if (busy || !recipients.trim()) return;
+                            e.preventDefault();
+                            issue();
+                        }}
+                    >
                         <div className="tprm-modal-head">
-                            <div className="tprm-modal-title">Issue the report</div>
-                            <div className="tprm-modal-sub">
-                                {issuing.third_party_name} to {tenant ? tenant.tenant_name : ""}
+                            <div>
+                                <div className="tprm-modal-title">Issue the report</div>
+                                <div className="tprm-modal-sub">
+                                    {issuing.third_party_name} to {tenant ? tenant.tenant_name : ""}
+                                </div>
                             </div>
+                            <button
+                                className="tprm-modal-close"
+                                aria-label="Close"
+                                onClick={() => setIssuing(null)}
+                                disabled={busy}
+                            >
+                                &times;
+                            </button>
                         </div>
                         <div className="tprm-modal-body">
                             <div className="tprm-field">
                                 <label>Recipients</label>
                                 <input
+                                    autoFocus
                                     className="tprm-input"
                                     value={recipients}
                                     placeholder="ciso@client.com, procurement@client.com"
@@ -178,7 +196,7 @@ function TPRMReports() {
                                 Cancel
                             </button>
                             <button
-                                className="tprm-btn primary"
+                                className="tprm-btn gold"
                                 onClick={issue}
                                 disabled={busy || !recipients.trim()}
                             >

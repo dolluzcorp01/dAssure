@@ -14,7 +14,7 @@
 // contested, and the score shown before they have looked at anything is
 // already honest rather than flattering.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const multer = require("multer");
 const archiver = require("archiver");
@@ -39,6 +39,119 @@ router.use(verifyJWT, tenantScope);
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /* ------------------------------------------------- 1. the tiering pack */
+/* ===================================================== mail preview =====
+   Nothing here sends a questionnaire that could not have been looked at first.
+   Two routes serve that:
+
+     /email/recipients  one cheap row per supplier, no rendered HTML
+     /email/preview     one supplier's real email, rendered
+
+   Split on purpose. A 50-supplier run costs one roster call plus one render
+   per email somebody actually opens, rather than 50 renders nobody reads.
+
+   Both call the same render function the send path calls, so a preview cannot
+   show one thing and the send deliver another. */
+
+/** The rule the send route applies, in one place so the roster cannot drift
+ *  from it: a questionnaire needs a tier and somewhere to send it. */
+const questionnaireSendable = (a) => a.tier != null && !!a.security_contact;
+
+const skipReason = (a) =>
+    a.tier == null ? 'not tiered'
+        : !a.security_contact ? 'no email'
+            : null;
+
+// POST /:tenantId/email/recipients   { assessmentIds?: [] }
+router.post("/:tenantId/email/recipients", requirePerm('assessment.assign'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const only = Array.isArray(req.body.assessmentIds) ? req.body.assessmentIds : [];
+        const [rows] = await db.query(
+            `SELECT a.assessment_id, a.tier, a.state, tp.third_party_name, tp.ref_code,
+                    tp.security_contact, s.sector_name, d.state AS dist_state
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+               LEFT JOIN distribution d ON d.assessment_id = a.assessment_id
+              WHERE a.tenant_id = ?
+                ${only.length ? `AND a.assessment_id IN (${only.map(() => '?').join(',')})` : ''}
+              ORDER BY tp.third_party_name`,
+            only.length ? [req.tenantId, ...only] : [req.tenantId]);
+
+        const recipients = rows.map(a => ({
+            id: a.assessment_id,
+            record_no: a.ref_code,
+            name: a.third_party_name,
+            department: a.sector_name || null,
+            to: a.security_contact || null,
+            has_email: !!a.security_contact,
+            status: a.tier == null ? 'Not tiered' : (a.dist_state || 'ready'),
+            period_label: a.tier != null ? `Tier ${a.tier}` : '-',
+            sendable: questionnaireSendable(a),
+            skip_reason: skipReason(a),
+        }));
+
+        res.json({
+            recipients,
+            sendable_count: recipients.filter(r => r.sendable).length,
+            no_email_count: recipients.filter(r => !r.has_email).length,
+            not_eligible_count: recipients.filter(r => r.tier === null || r.status === 'Not tiered').length,
+        });
+    } catch (e) {
+        logError("email/recipients", e, req);
+        res.status(500).json({ error: "Could not build the recipient list" });
+    }
+});
+
+// POST /:tenantId/email/preview   { assessmentId, reminder? }
+router.post("/:tenantId/email/preview", requirePerm('assessment.assign'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const id = Number(req.body.assessmentId);
+        if (!id) return res.status(400).json({ error: "assessmentId required" });
+
+        const [[a]] = await db.query(
+            `SELECT a.assessment_id, a.tier, tp.third_party_name, tp.security_contact,
+                    t.tenant_name, d.state AS dist_state
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               JOIN tenant t ON t.tenant_id = a.tenant_id
+               LEFT JOIN distribution d ON d.assessment_id = a.assessment_id
+              WHERE a.assessment_id = ? AND a.tenant_id = ?`,
+            [id, req.tenantId]);
+        if (!a) return res.status(404).json({ error: "That assessment does not exist" });
+
+        const reminder = !!req.body.reminder;
+        // The same call the send path makes, with the same arguments.
+        const { subject, html } = mailer.templates.renderVendorQuestionnaireEmail({
+            vendorName: a.third_party_name,
+            tenantName: a.tenant_name,
+            days: reminder ? 5 : 15,
+            reminder,
+        });
+
+        res.json({
+            from: mailer.mailFrom(),
+            to: a.security_contact || null,
+            cc: mailer.resolveCc(a.security_contact, null),
+            subject,
+            html,
+            recipient_name: a.third_party_name,
+            status: a.tier == null ? 'Not tiered' : (a.dist_state || 'ready'),
+            has_email: !!a.security_contact,
+            sendable: questionnaireSendable(a),
+            skip_reason: skipReason(a),
+        });
+    } catch (e) {
+        logError("email/preview", e, req);
+        res.status(500).json({ error: "Could not render the preview" });
+    }
+});
+
 router.get("/:tenantId/tiering-pack", requirePerm('assessment.perform'), async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
@@ -297,12 +410,12 @@ router.post("/:tenantId/issue-email", requirePerm('assessment.perform'), async (
             const key = storage.keyFor(`tenant/${req.tenantId}/questionnaire`, fileName);
             storage.put(key, Buffer.from(wb));
 
-            const tpl = mailer.templates.vendorQuestionnaire({
+            const tpl = mailer.templates.renderVendorQuestionnaireEmail({
                 vendorName: a.third_party_name, tenantName: t.tenant_name, days: 15,
             });
             await mailer.queue({
                 tenantId: req.tenantId, to: a.security_contact,
-                subject: tpl.subject, body: tpl.body,
+                subject: tpl.subject, body: tpl.text, html: tpl.html,
                 attachmentKey: key, attachmentName: fileName,
                 kind: 'questionnaire', empId: req.emp_id,
             });
@@ -359,12 +472,15 @@ router.post("/assessments/:id/remind", requirePerm('assessment.perform'), async 
             });
         }
 
-        const tpl = mailer.templates.vendorQuestionnaire({
+        // reminder:true swaps the hero and subject; everything else is the
+        // same message, so the supplier sees one consistent thread.
+        const tpl = mailer.templates.renderVendorQuestionnaireEmail({
             vendorName: a.third_party_name, tenantName: a.tenant_name, days: 5,
+            reminder: true,
         });
         await mailer.queue({
             tenantId: a.tenant_id, to: d.recipient,
-            subject: 'Reminder: ' + tpl.subject, body: tpl.body,
+            subject: tpl.subject, body: tpl.text, html: tpl.html,
             attachmentKey: d.workbook_key,
             attachmentName: `${a.third_party_name.replace(/\W+/g, '_')}_questionnaire.xlsx`,
             kind: 'reminder', empId: req.emp_id,

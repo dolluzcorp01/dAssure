@@ -31,10 +31,11 @@ const list = v => {
 };
 
 /**
- * Pulls a one-time code out of a message when there is one. dTprm has no OTP
- * flow today - login is password only - so this never fires yet. It is here so
- * that the moment an OTP mail is added, the code shows up in the terminal
- * instead of having to be read out of the database.
+ * Pulls a one-time code out of a message when there is one, so a code that is
+ * only queued - driver=outbox never actually sends - can still be read off the
+ * terminal. This is how the sign-in code is read during development: the mail
+ * is written to tprm_mail_outbox and never leaves the machine, but the block
+ * above prints the six digits and when they expire.
  */
 function findOtp({ kind, subject, body }) {
     const text = [subject, body].filter(Boolean).join(' ');
@@ -49,7 +50,8 @@ function findOtp({ kind, subject, body }) {
  *   stage: 'queued' | 'sent' | 'failed'
  */
 function logMail(stage, info) {
-    const { mailId, kind, from, fromName, to, cc, subject, attachment, providerId, error, driver } = info;
+    const { mailId, kind, from, fromName, to, cc, subject, attachment,
+        providerId, error, driver, expires } = info;
 
     const tag = stage === 'sent' ? green('sent  ')
         : stage === 'failed' ? red('failed')
@@ -65,7 +67,10 @@ function logMail(stage, info) {
     if (attachment) console.log(field('attach', attachment));
 
     const otp = findOtp(info);
-    if (otp) console.log('   ' + dim('code'.padEnd(8)) + bold(yellow('  ' + otp + '  ')));
+    if (otp) {
+        console.log('   ' + dim('code'.padEnd(8)) + bold(yellow('  ' + otp + '  '))
+            + (expires ? dim('  expires ' + expires) : ''));
+    }
 
     if (stage === 'queued' && driver !== 'sendgrid') {
         console.log(field('note', dim('driver=outbox - stored in tprm_mail_outbox, not sent')));

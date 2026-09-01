@@ -4,7 +4,7 @@
 // Grant the application's MySQL user INSERT and SELECT on tprm_audit_event and
 // nothing else, so the trail cannot be rewritten even by a compromised app.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');

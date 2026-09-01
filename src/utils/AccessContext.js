@@ -18,6 +18,8 @@ const AccessContext = createContext({
     tenants: [],
     tenant: null,
     permissions: {},
+    setupMode: false,
+    accessError: null,
     ready: false,
     hasPerm: () => false,
     setTenant: () => {},
@@ -30,6 +32,11 @@ export function AccessProvider({ children }) {
     const [user, setUser] = useState(null);
     const [tenants, setTenants] = useState([]);
     const [permissions, setPermissions] = useState({});
+    // First run: no client exists yet and this person may create the first one.
+    const [setupMode, setSetupMode] = useState(false);
+    // Why the session is unusable, when it is. 403 NO_ENGAGEMENT is not the
+    // same as being signed out, and the sign-in screen should say which.
+    const [accessError, setAccessError] = useState(null);
     const [tenantId, setTenantId] = useState(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
         return saved ? Number(saved) : null;
@@ -41,13 +48,24 @@ export function AccessProvider({ children }) {
         try {
             const res = await apiFetch("/api/tprm/login/me");
             if (!res.ok) {
-                setUser(null); setTenants([]); setPermissions({});
+                // 403 means the account is real but holds no engagement. Treat it
+                // like 401 for routing, but keep the reason so the sign-in screen
+                // can explain rather than silently bouncing.
+                let reason = null;
+                if (res.status === 403) {
+                    const body = await res.json().catch(() => null);
+                    reason = (body && body.message) || 'You have no engagement in dTprm.';
+                }
+                setUser(null); setTenants([]); setPermissions({}); setSetupMode(false);
+                setAccessError(reason);
                 return;
             }
             const data = await res.json();
             setUser(data.user);
             setTenants(data.tenants || []);
             setPermissions(data.permissions || {});
+            setSetupMode(!!data.setupMode);
+            setAccessError(null);
 
             // Keep the saved client only if it is still one the user can see.
             setTenantId(prev => {
@@ -59,7 +77,8 @@ export function AccessProvider({ children }) {
                 return next;
             });
         } catch {
-            setUser(null); setTenants([]); setPermissions({});
+            setUser(null); setTenants([]); setPermissions({}); setSetupMode(false);
+            setAccessError(null);
         } finally {
             setReady(true);
         }
@@ -81,11 +100,20 @@ export function AccessProvider({ children }) {
         return new Set(list);
     }, [permissions, tenantId]);
 
-    const hasPerm = useCallback((key) => permSet.has(key), [permSet]);
+    // On first run there is no client to hold a permission on, so the two
+    // abilities that open the system up are answered from setupMode instead.
+    // The server applies exactly the same rule - this only decides what the
+    // menu shows.
+    const hasPerm = useCallback(
+        (key) => permSet.has(key)
+            || (setupMode && (key === "client.create" || key === "user.grant")),
+        [permSet, setupMode]);
 
     const value = useMemo(() => ({
-        user, tenants, tenant, tenantId, permissions, ready, hasPerm, setTenant, refetch,
-    }), [user, tenants, tenant, tenantId, permissions, ready, hasPerm, setTenant, refetch]);
+        user, tenants, tenant, tenantId, permissions, setupMode, accessError, ready,
+        hasPerm, setTenant, refetch,
+    }), [user, tenants, tenant, tenantId, permissions, setupMode, accessError, ready,
+        hasPerm, setTenant, refetch]);
 
     return <AccessContext.Provider value={value}>{children}</AccessContext.Provider>;
 }
@@ -101,14 +129,19 @@ export const useAccess = () => useContext(AccessContext);
  *   } />
  */
 export function ProtectedRoute({ perm, fallback = "/login", children }) {
-    const { ready, user, hasPerm } = useAccess();
+    const { ready, user, hasPerm, accessError } = useAccess();
     const navigate = useNavigate();
 
     useEffect(() => {
         if (!ready) return;
-        if (!user) { navigate("/login", { replace: true }); return; }
+        if (!user) {
+            // Carry the reason across so the sign-in screen can show it instead
+            // of looking like an ordinary signed-out state.
+            navigate("/login", { replace: true, state: accessError ? { message: accessError } : undefined });
+            return;
+        }
         if (perm && !hasPerm(perm)) navigate(fallback, { replace: true });
-    }, [ready, user, perm, hasPerm, fallback, navigate]);
+    }, [ready, user, perm, hasPerm, fallback, navigate, accessError]);
 
     if (!ready) return null;
     if (!user) return null;

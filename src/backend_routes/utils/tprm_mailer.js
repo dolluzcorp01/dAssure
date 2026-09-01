@@ -3,12 +3,14 @@
 // down the row stays `queued` and the background worker retries it, so a
 // provider outage can never lose a questionnaire.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const fs = require('fs');
 const path = require('path');
 const sgMail = require('@sendgrid/mail');
 const getDBConnection = require('../../../config/db');
 const { logMail, logError } = require('./tprm_log');
+const { buildShell, looksLikeHtml } = require('./tprm_mail_theme');
+const templates = require('./tprm_mail_templates');
 
 const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
 
@@ -46,17 +48,33 @@ const STORAGE_DIR = process.env.TPRM_STORAGE_DIR
 if (process.env.SENDGRID_API_KEY) sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 /** Queue a message. Returns the outbox row id. */
-async function queue({ tenantId, to, cc, subject, body, attachmentKey, attachmentName, kind, empId }) {
+async function queue({ tenantId, to, cc, subject, body, html, attachmentKey, attachmentName,
+    kind, empId, expires }) {
     const resolvedCc = ccWithAdminCopies(to, cc);
+    // A body that is already a full document is stored as it stands - that is
+    // how a template edited by staff survives a round trip. Anything else is a
+    // plain-text legacy body, and gets the house shell wrapped around it so it
+    // still arrives looking like the rest of our mail.
+    const bodyHtml = html
+        || (looksLikeHtml(body)
+            ? body
+            : buildShell({
+                preheader: String(subject || ''),
+                eyebrow: 'Third Party Risk Management',
+                bodyHtml: `<p style="font-size:14px;line-height:1.7;margin:0 0 14px;color:#374151;white-space:pre-wrap">${
+                    String(body || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
+                }</p>`,
+            }));
+
     const [r] = await db.query(
         `INSERT INTO tprm_mail_outbox
-           (tenant_id, to_addr, cc_addr, subject, body_text, attachment_key,
+           (tenant_id, to_addr, cc_addr, subject, body_text, body_html, attachment_key,
             attachment_name, kind, created_by)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
         [
             tenantId || null,
             Array.isArray(to) ? to.join(',') : to,
-            resolvedCc, subject, body,
+            resolvedCc, subject, body, bodyHtml,
             attachmentKey || null, attachmentName || null,
             kind, empId || null,
         ]
@@ -65,6 +83,9 @@ async function queue({ tenantId, to, cc, subject, body, attachmentKey, attachmen
     logMail('queued', {
         mailId, kind, from: FROM, fromName: FROM_NAME, to, cc: resolvedCc,
         subject, body, attachment: attachmentName || attachmentKey, driver: DRIVER,
+        // Only set for a sign-in code: tells the terminal when it dies, since
+        // nothing about a queued row says so.
+        expires,
     });
     if (DRIVER === 'sendgrid' && process.env.SENDGRID_API_KEY) {
         await deliver(mailId).catch(() => { /* stays queued, worker retries */ });
@@ -82,7 +103,10 @@ async function deliver(mailId) {
         from: { email: FROM, name: FROM_NAME },
         replyTo: { email: CONTACT, name: FROM_NAME },
         subject: row.subject,
+        // Both parts: the HTML is what almost everyone sees, the text is the
+        // fallback for clients that refuse HTML and for spam scoring.
         text: row.body_text,
+        html: row.body_html || undefined,
     };
     if (row.cc_addr) msg.cc = String(row.cc_addr).split(',').map(s => s.trim()).filter(Boolean);
 
@@ -155,51 +179,21 @@ function startMailWorker() {
     console.log('📮 dTprm mail worker started (SendGrid).');
 }
 
-const templates = {
-    intakeTemplate: ({ tenantName, businessUnit }) => ({
-        subject: `Supplier intake template for ${tenantName}`,
-        body: `Hello,\n\nAttached is the supplier intake template for ${tenantName}`
-            + `${businessUnit ? ' (' + businessUnit + ')' : ''}.\n\n`
-            + `Please export your supplier master into the sheet from row 5 onward. `
-            + `Do not add, remove or reorder the columns, and leave the Category column blank `
-            + `- we suggest that for you.\n\nThere are no security questions in this file. `
-            + `It only asks who your suppliers are and what they do for you.\n\n`
-            + `If you have any questions, please contact ${CONTACT}.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
-    }),
-    tieringPack: ({ tenantName, count }) => ({
-        subject: `Inherent risk tiering pack for ${tenantName}`,
-        body: `Hello,\n\nAttached is the tiering pack covering ${count} in-scope suppliers.\n\n`
-            + `Each row is one supplier. Answer 1, 2 or 3 in every question column - the `
-            + `Questions sheet explains what each score means.\n\n`
-            + `These questions are about YOUR relationship with the supplier, not about the `
-            + `supplier's own controls. Only you can answer them.\n\n`
-            + `If you have any questions, please contact ${CONTACT}.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
-    }),
-    vendorQuestionnaire: ({ vendorName, tenantName, days }) => ({
-        subject: `Security questionnaire for ${vendorName}`,
-        body: `Hello,\n\n${tenantName} has engaged Dolluz Corp to assess the information `
-            + `security controls of its third parties. ${vendorName} is one of them.\n\n`
-            + `Attached is a questionnaire specific to your organisation. Please:\n`
-            + `  1. Choose a position for every control from the dropdown\n`
-            + `  2. Attach supporting evidence for each answer\n`
-            + `  3. Return the completed workbook within ${days} days\n\n`
-            + `Please return the file you were sent rather than a copy of a blank template. `
-            + `It carries an identity marker that lets us match it back to your organisation `
-            + `automatically.\n\n`
-            + `An answer with no supporting evidence is recorded as Not Evidenced.\n\n`
-            + `If you have any questions, please contact ${CONTACT}.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
-    }),
-    reportIssue: ({ tenantName, vendorName, reference }) => ({
-        subject: `Third party assessment report ${reference} - ${vendorName}`,
-        body: `Hello,\n\nThe third party assessment report for ${vendorName} has been `
-            + `approved and issued to ${tenantName}.\n\nDocument reference: ${reference}\n\n`
-            + `This report is confidential and is intended for ${tenantName} only.\n\n`
-            + `If you have any questions, please contact ${CONTACT}.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
-    }),
+/* ------------------------------------------------- what a preview must show */
+
+/** The exact From header a send will use. */
+const mailFrom = () => `"${FROM_NAME}" <${FROM}>`;
+
+/** The exact CC list a send will use, admin copies and all. Exported so a
+ *  preview shows the real routing rather than a guess at it. */
+const resolveCc = (to, cc) => {
+    const resolved = ccWithAdminCopies(to, cc);
+    return resolved ? resolved.split(',').map(x => x.trim()).filter(Boolean) : [];
 };
 
-module.exports = { queue, deliver, startMailWorker, templates };
+// templates.* are the pure render functions in tprm_mail_templates.js. The
+// preview routes import the same object, so a preview cannot drift from a send.
+module.exports = {
+    queue, deliver, startMailWorker, templates,
+    mailFrom, resolveCc, FROM, FROM_NAME, CONTACT, REPLY_TO: CONTACT,
+};

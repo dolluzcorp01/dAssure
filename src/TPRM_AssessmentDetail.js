@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiJson, apiPost, apiUpload, apiDownload } from "./utils/api";
+import { apiJson, apiPost, apiPut, apiUpload, apiDownload } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_AssessmentDetail.css";
@@ -11,21 +11,37 @@ const POSITIONS = [
 
 const POS_CLASS = {
     "Compliant": "green", "Partially Compliant": "amber", "Non-Compliant": "red",
-    "Not Evidenced": "grey", "Not Applicable": "grey",
+    "Not Evidenced": "faint", "Not Applicable": "na",
 };
 
 function TPRMAssessmentDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { user, hasPerm } = useAccess();
+    const { hasPerm } = useAccess();
     const [d, setD] = useState(null);
     const [err, setErr] = useState(null);
     const [gate, setGate] = useState(null);
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
+    // Who can be assigned on this client, and what is currently picked.
+    const [members, setMembers] = useState([]);
+    const [assign, setAssign] = useState({ assessorId: "", reviewerId: "" });
 
     const load = useCallback(() => {
-        apiJson(`/api/tprm/assessments/${id}`).then(setD).catch(setErr);
+        apiJson(`/api/tprm/assessments/${id}`)
+            .then(data => {
+                setD(data);
+                setAssign({
+                    assessorId: data.assessment.assessor_id || "",
+                    reviewerId: data.assessment.reviewer_id || "",
+                });
+                return data.assessment.tenant_id;
+            })
+            // Who may be assigned is a property of the client, so it can only be
+            // asked for once the assessment has told us which client this is.
+            .then(tenantId => apiJson(`/api/tprm/login/tenant-members/${tenantId}`))
+            .then(setMembers)
+            .catch(setErr);
     }, [id]);
 
     useEffect(() => { load(); }, [load]);
@@ -35,6 +51,34 @@ function TPRMAssessmentDetail() {
 
     const a = d.assessment;
     const frozen = ["approved", "issued", "closed"].includes(a.state);
+
+    const saveAssignment = async () => {
+        setBusy(true);
+        try {
+            await apiPut(`/api/tprm/assessments/${id}/assign`, {
+                assessorId: assign.assessorId || null,
+                reviewerId: assign.reviewerId || null,
+            });
+            load();
+            tprmAlert.success("Assignment saved");
+        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+    };
+
+    const setHold = async (hold) => {
+        let reason = null;
+        if (hold) {
+            reason = await tprmAlert.reason(
+                "Put this case on hold",
+                "Why is it stopping? The SLA clock pauses while it is held, and this becomes part of the audit record.");
+            if (!reason) return;
+        }
+        setBusy(true);
+        try {
+            await apiPost(`/api/tprm/assessments/${id}/hold`, { hold, reason });
+            load();
+            tprmAlert.success(hold ? "Case placed on hold" : "Case resumed");
+        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+    };
     const byRef = {};
     d.responses.forEach(r => { byRef[r.q_ref] = r; });
 
@@ -134,14 +178,24 @@ function TPRMAssessmentDetail() {
                         </button>
                     )}
                     {!frozen && a.state === "in_progress" && (
-                        <button className="tprm-btn primary" onClick={checkGate} disabled={busy}>
+                        <button className="tprm-btn gold" onClick={checkGate} disabled={busy}>
                             Submit for review
+                        </button>
+                    )}
+                    {a.state === "in_progress" && hasPerm("assessment.hold") && (
+                        <button className="tprm-btn" onClick={() => setHold(true)} disabled={busy}>
+                            Put on hold
+                        </button>
+                    )}
+                    {a.state === "on_hold" && hasPerm("assessment.hold") && (
+                        <button className="tprm-btn primary" onClick={() => setHold(false)} disabled={busy}>
+                            Resume
                         </button>
                     )}
                     {a.state === "under_review" && d.canApprove && !d.isAssessor && (
                         <>
                             <button className="tprm-btn" onClick={sendBack} disabled={busy}>Send back</button>
-                            <button className="tprm-btn primary" onClick={approve} disabled={busy}>Approve</button>
+                            <button className="tprm-btn gold" onClick={approve} disabled={busy}>Approve</button>
                         </>
                     )}
                     {a.state === "under_review" && d.isAssessor && (
@@ -170,6 +224,75 @@ function TPRMAssessmentDetail() {
                 </div>
             )}
 
+            {a.state === "on_hold" && (
+                <div className="tprm-note warn" style={{ marginBottom: 16 }}>
+                    <b>On hold.</b> {a.hold_reason || "No reason was recorded."} The SLA clock on
+                    every finding raised here is paused until the case resumes.
+                </div>
+            )}
+
+            {/* Assignment. Hidden once the case is settled, because changing who
+                assessed it after approval would rewrite history. */}
+            {!frozen && hasPerm("assessment.assign") && (
+                <div className="tprm-card tprm-assign" style={{ marginBottom: 18 }}>
+                    <div className="tprm-card-head">
+                        <div className="tprm-card-title">Assignment</div>
+                    </div>
+                    <div className="tprm-assign-grid">
+                        <div className="tprm-field">
+                            <label htmlFor="tprm-assessor">Assessor</label>
+                            <select
+                                id="tprm-assessor"
+                                className="tprm-select"
+                                value={assign.assessorId}
+                                onChange={e => setAssign(v => ({ ...v, assessorId: e.target.value }))}
+                            >
+                                <option value="">Nobody assigned</option>
+                                {members.map(m => (
+                                    <option key={m.emp_id} value={m.emp_id}>
+                                        {m.emp_name} ({m.role_code})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="tprm-field">
+                            <label htmlFor="tprm-reviewer">Reviewer</label>
+                            <select
+                                id="tprm-reviewer"
+                                className="tprm-select"
+                                value={assign.reviewerId}
+                                onChange={e => setAssign(v => ({ ...v, reviewerId: e.target.value }))}
+                            >
+                                <option value="">Nobody assigned</option>
+                                {members.map(m => (
+                                    <option
+                                        key={m.emp_id}
+                                        value={m.emp_id}
+                                        disabled={String(m.emp_id) === String(assign.assessorId)}
+                                    >
+                                        {m.emp_name} ({m.role_code})
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="tprm-hint">
+                                The reviewer cannot be the same person as the assessor
+                            </div>
+                        </div>
+                        <div className="tprm-assign-save">
+                            <button
+                                className="tprm-btn primary"
+                                onClick={saveAssignment}
+                                disabled={busy
+                                    || (String(assign.assessorId) === String(assign.reviewerId)
+                                        && !!assign.assessorId)}
+                            >
+                                Save assignment
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="tprm-grid k5" style={{ marginBottom: 18 }}>
                 {[
                     ["Inherent risk", a.inherent_score ?? "-", "var(--tprm-blue)",
@@ -195,8 +318,10 @@ function TPRMAssessmentDetail() {
                 <div className="tprm-card" style={{ marginBottom: 18 }}>
                     <div className="tprm-card-title" style={{ marginBottom: 12 }}>SUBMIT CHECKLIST</div>
                     {gate.map(c => (
-                        <div className="tprm-gate-row" key={c.key}>
-                            <span className={"tprm-gate-dot " + (c.pass ? "ok" : "no")} />
+                        <div className={"tprm-gate-row" + (c.pass ? "" : " fail")} key={c.key}>
+                            <span className={"tprm-gate-dot " + (c.pass ? "ok" : "no")}>
+                                {c.pass ? "✓" : "!"}
+                            </span>
                             <div>
                                 <div className="tprm-gate-label">{c.label}</div>
                                 <div className="tprm-gate-detail">{c.detail}</div>
@@ -279,7 +404,7 @@ function TPRMAssessmentDetail() {
                         return (
                             <div className="tprm-card flush" key={dom} style={{ marginBottom: 16 }}>
                                 <div className="tprm-card-head">
-                                    <div className="tprm-card-title">
+                                    <div className="tprm-card-title domain">
                                         {(cs[0] && cs[0].domain_name) || dom}
                                     </div>
                                     {p > 0 && !frozen && (

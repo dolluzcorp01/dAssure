@@ -11,8 +11,10 @@
             "cwd": "${workspaceFolder}",
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",
-            "skipFiles": ["<node_internals>/**"],
-            "restart": true
+            "skipFiles": ["<node_internals>/**"]
+            // No "restart": true here. With console=integratedTerminal, js-debug
+            // ends the session as soon as it launches, and the server goes down
+            // with it - "Waiting for the debugger to disconnect..." then exit.
         },
         {
             "name": "dTprm: frontend (react-scripts)",

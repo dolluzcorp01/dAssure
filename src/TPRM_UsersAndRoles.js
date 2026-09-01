@@ -56,7 +56,6 @@ function TPRMUsersAndRoles() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Users and roles</h1>
                     <div className="tprm-page-sub">
                         Roles are per client. Someone can be a Lead Assessor on one engagement and an
                         Assessor on another. You can only grant a role at or below your own level.
@@ -81,7 +80,8 @@ function TPRMUsersAndRoles() {
                 </div>
                 <table className="tprm-table">
                     <thead>
-                        <tr><th>Name</th><th>Email</th><th>Role</th><th>Level</th><th>Granted</th><th></th></tr>
+                        <tr><th>Name</th><th>Email</th><th>Role</th><th>Level</th>
+                            <th>Last sign-in</th><th>Granted</th><th></th></tr>
                     </thead>
                     <tbody>
                         {members.map(m => (
@@ -93,8 +93,17 @@ function TPRMUsersAndRoles() {
                                     )}
                                 </td>
                                 <td style={{ fontSize: 12, color: "var(--tprm-muted)" }}>{m.emp_mail_id}</td>
-                                <td><span className="tprm-chip blue">{m.role_name}</span></td>
+                                <td><span className="tprm-chip purple">{m.role_name}</span></td>
                                 <td className="num">{m.rank_value}</td>
+                                {/* The preview shows two factor enrolment here. dTprm emails a
+                                    fresh code at every sign-in, so there is nothing to enrol and
+                                    nobody is ever "pending". What is actually worth knowing is
+                                    whether a granted person has ever used the access. */}
+                                <td style={{ fontSize: 12 }}>
+                                    {m.last_login
+                                        ? String(m.last_login).slice(0, 10)
+                                        : <span className="tprm-chip amber">never</span>}
+                                </td>
                                 <td style={{ fontSize: 12 }}>{String(m.granted_time).slice(0, 10)}</td>
                                 <td>
                                     {Number(m.rank_value) <= myRank
@@ -134,18 +143,37 @@ function TPRMUsersAndRoles() {
                 must never discard a part-filled form. Cancel is the way out. */}
             {form && (
                 <div className="tprm-modal-backdrop">
-                    <div className="tprm-modal">
+                    <div
+                        className="tprm-modal"
+                        onKeyDown={e => {
+                            if (e.key !== "Enter" || e.target.tagName === "TEXTAREA") return;
+                            if (busy || !form.empId || !form.roleId) return;
+                            e.preventDefault();
+                            grant();
+                        }}
+                    >
                         <div className="tprm-modal-head">
-                            <div className="tprm-modal-title">Grant access to this client</div>
-                            <div className="tprm-modal-sub">
-                                They sign in with their existing Dolluz Corp credentials
+                            <div>
+                                <div className="tprm-modal-title">Grant access to this client</div>
+                                <div className="tprm-modal-sub">
+                                    They sign in with their existing Dolluz Corp credentials
+                                </div>
                             </div>
+                            <button
+                                className="tprm-modal-close"
+                                aria-label="Close"
+                                onClick={() => setForm(null)}
+                                disabled={busy}
+                            >
+                                &times;
+                            </button>
                         </div>
                         <div className="tprm-modal-body">
                             <div className="tprm-field">
                                 <label>Employee</label>
                                 <select
                                     className="tprm-select"
+                                    autoFocus
                                     value={form.empId}
                                     onChange={e => setForm({ ...form, empId: e.target.value })}
                                 >
@@ -184,7 +212,7 @@ function TPRMUsersAndRoles() {
                                 Cancel
                             </button>
                             <button
-                                className="tprm-btn primary"
+                                className="tprm-btn gold"
                                 onClick={grant}
                                 disabled={busy || !form.empId || !form.roleId}
                             >

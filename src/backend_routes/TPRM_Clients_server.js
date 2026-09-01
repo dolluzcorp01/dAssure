@@ -1,7 +1,7 @@
 // Clients (tenants), their methodology dials, engagement role grants, and the
 // per-client dashboard.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
@@ -85,12 +85,16 @@ router.post("/create", requirePerm('client.create'), async (req, res) => {
 
         // The creator becomes Engagement Manager on their own new client,
         // otherwise they would immediately lose sight of what they just made.
-        const [[em]] = await conn.query(`SELECT role_id FROM tprm_role WHERE role_code = 'EM'`);
-        if (em) {
+        // On first run they get Practice Head instead: the very first person
+        // in has to be able to set the methodology and grant everyone else.
+        const firstRole = req.setupMode ? 'PH' : 'EM';
+        const [[role]] = await conn.query(
+            `SELECT role_id FROM tprm_role WHERE role_code = ?`, [firstRole]);
+        if (role) {
             await conn.query(
                 `INSERT IGNORE INTO tprm_user_tenant_role (emp_id, tenant_id, role_id, granted_by)
                  VALUES (?,?,?,?)`,
-                [req.emp_id, tenantId, em.role_id, req.emp_id]
+                [req.emp_id, tenantId, role.role_id, req.emp_id]
             );
         }
 
@@ -266,10 +270,23 @@ router.get("/:tenantId/members", async (req, res) => {
         const byId = {};
         emps.forEach(e => { byId[e.emp_id] = e; });
 
+        // When each person last completed the code step. A consumed OTP row is
+        // the only record of a sign-in that actually succeeded, so it answers
+        // the question a Practice Head is really asking about a grant: has this
+        // person ever used it? Cheap - one grouped read on an indexed column.
+        const [logins] = await db.query(
+            `SELECT emp_id, MAX(consumed_at) AS last_login
+               FROM tprm_login_otp
+              WHERE consumed_at IS NOT NULL AND emp_id IN (${ids.map(() => '?').join(',')})
+              GROUP BY emp_id`, ids);
+        const lastLogin = {};
+        logins.forEach(l => { lastLogin[l.emp_id] = l.last_login; });
+
         res.json(grants.map(g => ({
             ...g,
             emp_name: byId[g.emp_id] ? byId[g.emp_id].emp_name : '(removed employee)',
             emp_mail_id: byId[g.emp_id] ? byId[g.emp_id].emp_mail_id : null,
+            last_login: lastLogin[g.emp_id] || null,
         })));
     } catch (e) {
         logError("members", e, req);

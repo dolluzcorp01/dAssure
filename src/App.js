@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import LeftNavbar from "./left_navbar";
+import TopBar from "./TPRM_TopBar";
 import { AccessProvider, ProtectedRoute } from "./utils/AccessContext";
 
 import Login from "./TPRM_Login";
@@ -15,11 +16,12 @@ import QuestionBank from "./TPRM_QuestionBank";
 import Methodology from "./TPRM_Methodology";
 import UsersAndRoles from "./TPRM_UsersAndRoles";
 import AuditTrail from "./TPRM_AuditTrail";
+import Banners from "./TPRM_Banners";
+import MyAccount from "./TPRM_MyAccount";
 
 import "./App.css";
 
 function App() {
-    const [navSize, setNavSize] = useState("full");
     const location = useLocation();
 
     const path = location.pathname.toLowerCase();
@@ -37,8 +39,9 @@ function App() {
                 </Routes>
             ) : (
                 <div className="tprm-layout">
-                    <LeftNavbar navSize={navSize} setNavSize={setNavSize} />
-                    <div className={`tprm-main ${navSize}`}>
+                    <LeftNavbar />
+                    <div className="tprm-main">
+                        <TopBar />
                         <Routes>
                             <Route path="/Dashboard" element={
                                 <ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -62,6 +65,11 @@ function App() {
                                 <ProtectedRoute perm="user.grant"><UsersAndRoles /></ProtectedRoute>} />
                             <Route path="/Audit_Trail" element={
                                 <ProtectedRoute perm="audit.read"><AuditTrail /></ProtectedRoute>} />
+                            <Route path="/Banners" element={
+                                <ProtectedRoute perm="banner.manage"><Banners /></ProtectedRoute>} />
+                            {/* No permission: everyone may see their own account. */}
+                            <Route path="/My_Account" element={
+                                <ProtectedRoute><MyAccount /></ProtectedRoute>} />
                             <Route path="*" element={<Navigate to="/Dashboard" replace />} />
                         </Routes>
                     </div>

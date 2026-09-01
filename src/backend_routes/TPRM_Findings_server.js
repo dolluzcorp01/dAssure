@@ -4,7 +4,7 @@
 // sla_paused_sec accumulates while the case is on hold, so days_remaining is
 // the honest figure rather than one that punishes us for a client's delay.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');

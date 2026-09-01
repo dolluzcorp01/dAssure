@@ -1,8 +1,11 @@
-.tprm-detail-cols { display: flex; gap: 18px; align-items: flex-start; }
+/* The assessment case. Two columns: the instrument on the left, the thread
+   and the findings on the right, at the widths the source draws them. */
+
+.tprm-detail-cols { display: flex; gap: 20px; align-items: flex-start; }
 
 .tprm-detail-main { flex: 1; min-width: 0; }
 
-.tprm-detail-side { flex: 0 0 340px; position: sticky; top: 18px; }
+.tprm-detail-side { flex: 0 0 380px; width: 380px; position: sticky; top: 18px; }
 
 @media (max-width: 1200px) {
     .tprm-detail-cols { flex-direction: column; }
@@ -13,68 +16,74 @@
 .tprm-q {
     display: flex;
     gap: 14px;
-    padding: 15px 18px;
+    padding: 14px 18px;
     border-bottom: 1px solid var(--tprm-line-soft);
+    background: #fff;
 }
 
 .tprm-q:last-child { border-bottom: none; }
 
-.tprm-q.asserted { background: #FBFAF7; border-left: 3px solid var(--tprm-amber); }
+/* A supplier assertion is tinted blue, not amber: it is unaccepted work
+   waiting on you, not a warning about the answer itself. */
+.tprm-q.asserted { background: #F7FAFE; }
 
 .tprm-q-ref {
     flex: 0 0 62px;
-    font-family: Consolas, monospace;
-    font-size: 11.5px;
+    font-family: var(--tprm-mono);
+    font-size: 12.5px;
     font-weight: 700;
-    color: var(--tprm-navy);
+    color: var(--tprm-gold);
     padding-top: 2px;
 }
 
 .tprm-q-body { flex: 1; min-width: 0; }
 
-.tprm-q-text { font-size: 13px; line-height: 1.55; color: var(--tprm-body); }
+.tprm-q-text { font-size: 14.5px; line-height: 1.5; color: var(--tprm-body); }
 
 .tprm-q-evidence {
-    font-size: 11.5px;
+    font-size: 12px;
     color: var(--tprm-faint);
-    margin-top: 4px;
-    font-style: italic;
+    margin-top: 5px;
+    line-height: 1.5;
 }
 
 .tprm-q-note {
-    font-size: 11.5px;
+    font-size: 12.5px;
     color: var(--tprm-muted);
-    margin-top: 6px;
-    padding: 6px 9px;
+    margin-top: 9px;
+    padding: 8px 11px;
     background: #F4F6F8;
     border-radius: 6px;
     line-height: 1.5;
 }
 
+/* The override justification is the purple panel from the source: it is the
+   assessor's own words standing against the supplier's, and it reads as such. */
 .tprm-q-override {
-    font-size: 11.5px;
-    color: #8A5E10;
-    margin-top: 6px;
-    padding: 6px 9px;
-    background: #FDF8EC;
-    border-left: 2px solid var(--tprm-amber);
+    font-size: 12.5px;
+    color: #5A2A78;
+    margin-top: 9px;
+    padding: 8px 11px;
+    background: #F3EEFA;
+    border: 1px solid #DCCFF0;
+    border-radius: 6px;
     line-height: 1.5;
 }
 
 .tprm-q-opts {
     display: flex;
-    gap: 6px;
+    gap: 7px;
     margin-top: 10px;
     flex-wrap: wrap;
     align-items: center;
 }
 
-.tprm-q-hint { font-size: 11.5px; color: var(--tprm-faint); margin-left: 6px; }
+.tprm-q-hint { font-size: 12px; color: var(--tprm-faint); margin-left: 6px; }
 
 /* -------------------------------------------------------- score buttons */
 .tprm-scorebtn {
-    width: 32px;
-    height: 30px;
+    width: 34px;
+    height: 32px;
     border: 1px solid var(--tprm-line);
     background: #fff;
     border-radius: 7px;
@@ -82,31 +91,37 @@
     font-weight: 700;
     color: var(--tprm-muted);
     cursor: pointer;
+    font-family: inherit;
 }
 
-.tprm-scorebtn:hover:not(:disabled) { border-color: var(--tprm-orange); }
+.tprm-scorebtn:hover:not(:disabled) { border-color: var(--tprm-gold); }
 .tprm-scorebtn.on { background: var(--tprm-navy); border-color: var(--tprm-navy); color: #fff; }
-.tprm-scorebtn:disabled { opacity: .55; cursor: not-allowed; }
+.tprm-scorebtn:disabled { opacity: .45; cursor: not-allowed; }
 
+/* The five positions, drawn as the source draws them in the override panel:
+   a full fill in the position's own colour once chosen. */
 .tprm-posbtn {
     border: 1px solid var(--tprm-line);
     background: #fff;
     border-radius: 7px;
-    padding: 5px 10px;
-    font-size: 11.5px;
-    color: var(--tprm-muted);
+    padding: 8px 13px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tprm-body);
     cursor: pointer;
     font-family: inherit;
     white-space: nowrap;
 }
 
 .tprm-posbtn:hover:not(:disabled) { border-color: #C7D2DE; }
-.tprm-posbtn:disabled { opacity: .55; cursor: not-allowed; }
+.tprm-posbtn:disabled { opacity: .45; cursor: not-allowed; }
 
-.tprm-posbtn.on { color: #fff; font-weight: 700; }
+.tprm-posbtn.on { color: #fff; }
 .tprm-posbtn.green.on { background: var(--tprm-green); border-color: var(--tprm-green); }
 .tprm-posbtn.amber.on { background: var(--tprm-amber); border-color: var(--tprm-amber); }
 .tprm-posbtn.red.on { background: var(--tprm-red); border-color: var(--tprm-red); }
+.tprm-posbtn.faint.on { background: var(--tprm-faint); border-color: var(--tprm-faint); }
+.tprm-posbtn.na.on { background: #A9A7BA; border-color: #A9A7BA; }
 .tprm-posbtn.grey.on { background: var(--tprm-muted); border-color: var(--tprm-muted); }
 
 .tprm-q-foot {
@@ -118,8 +133,8 @@
 }
 
 .tprm-upload {
-    font-size: 11.5px;
-    color: var(--tprm-orange-text);
+    font-size: 12px;
+    color: var(--tprm-blue);
     cursor: pointer;
     text-decoration: underline;
 }
@@ -127,44 +142,103 @@
 .tprm-upload input { display: none; }
 
 /* -------------------------------------------------------- submit gate */
-.tprm-gate-row { display: flex; gap: 11px; padding: 8px 0; align-items: flex-start; }
+/* Each check is a ring: filled green with a tick when it passes, hollow red
+   with an exclamation when it does not. The state is legible before the words. */
+.tprm-gate-row {
+    display: flex;
+    gap: 13px;
+    padding: 13px 0;
+    align-items: flex-start;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+}
+
+.tprm-gate-row:last-of-type { border-bottom: none; }
 
 .tprm-gate-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    margin-top: 5px;
-    flex: 0 0 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    flex: 0 0 26px;
+    border-radius: 13px;
+    font-size: 14px;
+    font-weight: 800;
 }
 
-.tprm-gate-dot.ok { background: var(--tprm-green); }
-.tprm-gate-dot.no { background: var(--tprm-red); }
+.tprm-gate-dot.ok {
+    background: var(--tprm-green);
+    border: 2px solid var(--tprm-green);
+    color: #fff;
+}
 
-.tprm-gate-label { font-size: 13px; color: var(--tprm-body); }
-.tprm-gate-detail { font-size: 11.5px; color: var(--tprm-muted); margin-top: 2px; }
+.tprm-gate-dot.no {
+    background: #fff;
+    border: 2px solid var(--tprm-red);
+    color: var(--tprm-red);
+}
+
+.tprm-gate-label { font-size: 14.5px; font-weight: 600; color: var(--tprm-body); }
+.tprm-gate-detail { font-size: 12.5px; color: var(--tprm-muted); margin-top: 3px; }
+.tprm-gate-row.fail .tprm-gate-detail { color: var(--tprm-red); }
 
 /* ----------------------------------------------------------- thread */
-.tprm-thread { max-height: 420px; overflow-y: auto; padding: 6px 0; }
+.tprm-thread { max-height: 460px; overflow-y: auto; padding: 12px 0; }
 
-.tprm-msg { padding: 9px 16px; border-bottom: 1px solid var(--tprm-line-soft); }
+.tprm-msg { padding: 8px 18px 14px; }
 
-.tprm-msg.activity { background: #FAFBFC; }
-.tprm-msg.activity .tprm-msg-body { font-size: 11.5px; color: var(--tprm-muted); font-style: italic; }
+/* An activity line is the system speaking, so it is set as a quiet rule
+   rather than as somebody's message. */
+.tprm-msg.activity { padding: 0 18px 14px; }
 
-.tprm-msg-who { font-size: 11.5px; font-weight: 700; color: var(--tprm-navy); }
-.tprm-msg-body { font-size: 12.5px; line-height: 1.55; margin-top: 2px; white-space: pre-wrap; }
-.tprm-msg-when { font-size: 10.5px; color: var(--tprm-faint); margin-top: 3px; }
-
-.tprm-thread-compose {
-    padding: 12px 16px;
-    border-top: 1px solid var(--tprm-line-soft);
-    background: #FAFBFC;
+.tprm-msg.activity .tprm-msg-body {
+    background: #F4F7FA;
+    border-left: 3px solid var(--tprm-faint);
+    padding: 8px 11px;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    color: var(--tprm-muted);
+    margin-top: 0;
 }
 
-.tprm-thread-compose textarea { min-height: 60px; margin-bottom: 8px; }
+.tprm-msg-who { font-size: 13px; font-weight: 700; color: var(--tprm-body); }
+.tprm-msg-body { font-size: 13.5px; line-height: 1.5; margin-top: 5px; white-space: pre-wrap; }
+.tprm-msg-when { font-size: 11px; color: var(--tprm-faint); margin-top: 3px; }
+
+.tprm-thread-compose {
+    padding: 12px 18px;
+    border-top: 1px solid var(--tprm-line-soft);
+}
+
+.tprm-thread-compose textarea {
+    min-height: 62px;
+    margin-bottom: 8px;
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 13px;
+}
 
 /* --------------------------------------------------------- findings */
-.tprm-finding { padding: 11px 16px; border-bottom: 1px solid var(--tprm-line-soft); }
+.tprm-finding { padding: 12px 18px; border-bottom: 1px solid var(--tprm-line-soft); }
 .tprm-finding:last-child { border-bottom: none; }
-.tprm-finding-title { font-size: 12.5px; margin-top: 5px; line-height: 1.5; }
-.tprm-finding-due { font-size: 11px; color: var(--tprm-faint); margin-top: 4px; }
+.tprm-finding-title { font-size: 13px; margin-top: 5px; line-height: 1.5; }
+.tprm-finding-due { font-size: 11.5px; color: var(--tprm-faint); margin-top: 4px; }
+
+/* --------------------------------------------------------- assignment */
+/* Two selects and a save, on one line until the screen is too narrow. */
+.tprm-assign-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 16px;
+    align-items: start;
+    padding: 16px 18px 18px;
+}
+
+.tprm-assign-grid .tprm-field { margin-bottom: 0; }
+
+.tprm-assign-save { align-self: center; padding-top: 20px; }
+
+@media (max-width: 760px) {
+    .tprm-assign-grid { grid-template-columns: 1fr; }
+    .tprm-assign-save { padding-top: 0; }
+}

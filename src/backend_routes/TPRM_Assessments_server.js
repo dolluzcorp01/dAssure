@@ -6,7 +6,7 @@
 //   2. The person who assessed can never be the person who approves.
 // Both are also enforced in the database, so a bug here cannot bypass them.
 
-require("dotenv").config();
+require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
@@ -20,6 +20,29 @@ const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
 const dadmin = getDBConnection('dadmin').promise();
 
 router.use(verifyJWT, tenantScope);
+
+// tenantScope reads the first path segment as a client id, which is correct for
+// the routers keyed by client (/:tenantId/list and friends). Here the first
+// segment is an ASSESSMENT id, so without this every requirePerm below would be
+// checked against whichever client happens to share that number - usually none,
+// which is why assign, hold, submit and approve all answered FORBIDDEN to a
+// Practice Head who plainly holds the permission.
+//
+// requirePerm runs before the handler, so the real client has to be resolved
+// here rather than inside it.
+router.use(async (req, res, next) => {
+    const m = /^\/(\d+)(\/|$)/.exec(req.path);
+    if (!m) return next();
+    try {
+        const [[a]] = await db.query(
+            `SELECT tenant_id FROM assessment WHERE assessment_id = ?`, [m[1]]);
+        if (a) req.tenantId = Number(a.tenant_id);
+        next();
+    } catch (e) {
+        logError('assessment tenant resolve', e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
 
 /* ---------------------------------------------------------- internals */
 
@@ -126,7 +149,7 @@ async function submitChecks(a) {
           WHERE assessment_id=? AND q_type='control'
             AND position IN ('Non-Compliant','Not Evidenced','Partially Compliant')`, [a.assessment_id]);
 
-    const reviewerOk = !!a.reviewer_id && Number(a.reviewer_id) !== Number(a.assessor_id);
+    const reviewerOk = !!a.reviewer_id && String(a.reviewer_id) !== String(a.assessor_id);
 
     return [
         {
@@ -171,7 +194,7 @@ router.post("/third-parties/:id/create", requirePerm('assessment.assign'), async
         if (!requireTenant(req, res)) return;
 
         const { assessorId, reviewerId, cycleLabel } = req.body;
-        if (assessorId && reviewerId && Number(assessorId) === Number(reviewerId)) {
+        if (assessorId && reviewerId && String(assessorId) === String(reviewerId)) {
             return res.status(400).json({
                 error: "SOD_VIOLATION",
                 message: "The reviewer cannot be the same person as the assessor",
@@ -482,7 +505,7 @@ router.put("/:id/assign", requirePerm('assessment.assign'), async (req, res) => 
 
         const assessorId = req.body.assessorId || null;
         const reviewerId = req.body.reviewerId || null;
-        if (assessorId && reviewerId && Number(assessorId) === Number(reviewerId)) {
+        if (assessorId && reviewerId && String(assessorId) === String(reviewerId)) {
             return res.status(400).json({
                 error: "SOD_VIOLATION",
                 message: "The reviewer cannot be the same person as the assessor",

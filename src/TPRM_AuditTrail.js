@@ -27,7 +27,6 @@ function TPRMAuditTrail() {
         <div className="tprm-page">
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">Audit trail</h1>
                     <div className="tprm-page-sub">
                         {tenant ? tenant.tenant_name : ""} &nbsp;|&nbsp; Append only. There is no
                         endpoint anywhere in this application that edits or deletes these rows.
@@ -55,7 +54,7 @@ function TPRMAuditTrail() {
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>When</th><th>Who</th><th>Action</th><th>Object</th>
+                            <th>When</th><th>Who</th><th>Action</th><th>Entity</th>
                             <th>Reason</th><th>IP</th><th></th>
                         </tr>
                     </thead>
@@ -67,7 +66,7 @@ function TPRMAuditTrail() {
                                         {String(r.occurred_time).slice(0, 19).replace("T", " ")}
                                     </td>
                                     <td style={{ fontSize: 12.5 }}>{r.actor_name}</td>
-                                    <td className="num" style={{ fontSize: 11.5 }}>{r.action}</td>
+                                    <td><span className="tprm-chip blue">{r.action}</span></td>
                                     <td style={{ fontSize: 11.5, color: "var(--tprm-muted)" }}>
                                         {r.entity_type} {r.entity_id ? `#${r.entity_id}` : ""}
                                     </td>

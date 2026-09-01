@@ -1,32 +1,62 @@
+/* The toolkit palette, taken from tprmpack/web/src/lib/ui.jsx so the app and
+   the original preview render the same colours.
+
+   Gold is the accent, and it is used the way the source uses it: as a fill
+   with near-black text on top, or as a mark on the navy rail. It is never set
+   as text on white, where #C9A227 sits at 2.4:1 and fails AA - the source
+   never does that either. */
+
 :root {
-    --tprm-navy: #0D1B2A;
-    --tprm-orange: #E8520A;
-    --tprm-orange-text: #C94409;   /* #E8520A fails WCAG AA as text at 3.72:1 */
-    --tprm-paper: #FBFAF7;
-    --tprm-line: #E2E8F0;
-    --tprm-line-soft: #EEF2F6;
+    /* structure */
+    --tprm-ink: #0E1A2B;
+    --tprm-ink-2: #16273D;
+    --tprm-navy: #0E1A2B;          /* same role as ink; kept, widely referenced */
+    --tprm-bg: #EEF2F6;
+    --tprm-card: #FFFFFF;
+    --tprm-paper: #FFFFFF;
+    --tprm-line: #DCE3EB;
+    --tprm-line-soft: #EDF1F5;
+    --tprm-wash: #FAFBFC;          /* the ground under table heads and card heads */
+
+    /* type */
+    --tprm-body: #14212F;
     --tprm-muted: #5E6E80;
-    --tprm-faint: #94A3B4;
-    --tprm-body: #1F2A37;
-    --tprm-green: #1B7A5A;
-    --tprm-amber: #C4881B;
+    --tprm-faint: #8494A5;
+
+    /* accent */
+    --tprm-gold: #C9A227;
+    --tprm-gold-2: #E5C765;
+    --tprm-gold-ink: #231C05;      /* the text that sits on a gold fill */
+
+    /* semantic */
     --tprm-red: #B0392E;
-    --tprm-blue: #185FA5;
+    --tprm-amber: #C4881B;
+    --tprm-green: #1B7A5A;
+    --tprm-blue: #2B5C9B;
+    --tprm-purple: #6B4E9B;
+
+    /* the two faces the source draws in */
+    --tprm-font: Poppins, 'Segoe UI', -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    --tprm-mono: Consolas, 'SF Mono', Menlo, monospace;
 }
 
 * { box-sizing: border-box; }
 
-body {
+/* The source sets the page ground on html, body and the mount point alike, so
+   an under-tall page never shows the browser's own white below the app. */
+html, body, #root {
     margin: 0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: #F4F6F8;
+    padding: 0;
+    height: 100%;
+    background: var(--tprm-bg);
+}
+
+body {
+    /* Poppins is the face the toolkit is drawn in. index.html loads it; the
+       rest of the stack is the fallback the source declares. */
+    font-family: var(--tprm-font);
     color: var(--tprm-body);
     -webkit-font-smoothing: antialiased;
 }
 
-code, .mono {
-    font-family: Consolas, 'SF Mono', Menlo, monospace;
-    font-variant-numeric: tabular-nums;
-}
-
-.tprm-swal { border-radius: 12px !important; }
+input, select, textarea, button { font-family: inherit; }

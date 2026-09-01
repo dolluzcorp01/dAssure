@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiJson } from "./utils/api";
+import { useNavigate } from "react-router-dom";
 import { useAccess } from "./utils/AccessContext";
 import "./TPRM_Dashboard.css";
 
@@ -9,7 +10,8 @@ const STATE_LABEL = {
 };
 
 function TPRMDashboard() {
-    const { tenant, tenantId } = useAccess();
+    const { tenant, tenantId, setupMode, hasPerm } = useAccess();
+    const navigate = useNavigate();
     const [d, setD] = useState(null);
     const [err, setErr] = useState(null);
 
@@ -19,12 +21,39 @@ function TPRMDashboard() {
         apiJson(`/api/tprm/clients/${tenantId}/dashboard`).then(setD).catch(setErr);
     }, [tenantId]);
 
+    // Landing here with no client has two very different causes, and the same
+    // message for both is what made this a dead end: on first run the person
+    // reading it is the one who can fix it.
     if (!tenantId) {
+        const canStart = setupMode || hasPerm("client.create");
         return (
             <div className="tprm-page">
-                <div className="tprm-note warn">
-                    No client is assigned to your account yet. Ask a Practice Head or Engagement
-                    Manager to grant you a role on an engagement.
+                <div className="tprm-empty-state">
+                    <div className="tprm-empty-title">
+                        {setupMode ? "Nothing has been set up yet" : "No client is assigned to you"}
+                    </div>
+                    <div className="tprm-empty-body">
+                        {setupMode
+                            ? "There are no clients in dTprm. Onboard the first one and you become "
+                              + "its Practice Head automatically, which unlocks the rest of the app "
+                              + "and lets you grant your team their roles."
+                            : canStart
+                                ? "You are not on an engagement yet. Onboard a client to start one, "
+                                  + "or ask a Practice Head to add you to an existing engagement."
+                                : "Your account is valid, but you have not been assigned to a client "
+                                  + "engagement. Ask a Practice Head or Engagement Manager to grant "
+                                  + "you a role on one."}
+                    </div>
+                    {canStart && (
+                        <div className="tprm-empty-actions">
+                            <button
+                                className="tprm-btn primary"
+                                onClick={() => navigate("/Clients", { state: { openForm: true } })}
+                            >
+                                {setupMode ? "Onboard the first client" : "Go to Clients"}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         );
@@ -37,9 +66,13 @@ function TPRMDashboard() {
 
     return (
         <div className="tprm-page">
+            {/* The client this position belongs to. The top bar names the page;
+                this names the subject, which is the thing that changes when the
+                client selector changes. Without it the numbers below sit on the
+                screen with nothing saying whose they are. */}
             <div className="tprm-page-head">
                 <div>
-                    <h1 className="tprm-page-title">{tenant ? tenant.tenant_name : "Dashboard"}</h1>
+                    <h1 className="tprm-page-title">{tenant ? tenant.tenant_name : ""}</h1>
                     <div className="tprm-page-sub">Programme position</div>
                 </div>
             </div>
@@ -52,7 +85,7 @@ function TPRMDashboard() {
                     ["Open critical findings", k.open_critical, "var(--tprm-red)", "awaiting remediation"],
                     ["SLA breached", k.breached, "var(--tprm-amber)", "past the agreed date"],
                 ].map(x => (
-                    <div className="tprm-card tprm-kpi" key={x[0]} style={{ borderTopColor: x[2] }}>
+                    <div className="tprm-card tprm-kpi lg" key={x[0]} style={{ borderTopColor: x[2] }}>
                         <div className="tprm-kpi-label">{x[0]}</div>
                         <div className="tprm-kpi-value" style={{ color: x[2] }}>{x[1]}</div>
                         <div className="tprm-kpi-sub">{x[3]}</div>
@@ -69,7 +102,10 @@ function TPRMDashboard() {
                         const c = colors[t.tier - 1];
                         return (
                             <div className="tprm-dash-bar" key={t.tier}>
-                                <span className="tprm-chip" style={{ background: "#F1F4F7", color: c }}>
+                                <span
+                                    className="tprm-chip"
+                                    style={{ background: c, borderColor: c, color: "#fff" }}
+                                >
                                     TIER {t.tier}
                                 </span>
                                 <div className="tprm-dash-track">

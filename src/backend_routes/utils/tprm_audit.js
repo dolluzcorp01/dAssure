@@ -7,11 +7,53 @@
 const getDBConnection = require('../../../config/db');
 const { logError } = require('./tprm_log');
 const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
+const dadmin = getDBConnection('dadmin').promise();
+
+// First-run setup.
+//
+// dTprm access is the engagement grant, so on a brand new system nobody can
+// sign in: the person who hands out grants would need a grant themselves.
+// Setup mode is the one narrow door out of that. It is open only while the
+// system has never been set up - not one live grant anywhere - and only to
+// someone who is already an administrator in dAdmin. It grants exactly two
+// abilities, and it closes by itself the moment the first grant exists,
+// because at that point the condition below stops being true.
+const SETUP_PERMS = new Set(['client.create', 'user.grant']);
+
+/** True when no live engagement grant exists anywhere in the system. */
+async function systemHasNoGrants() {
+    const [rows] = await db.query(
+        'SELECT 1 AS x FROM tprm_user_tenant_role WHERE revoked_time IS NULL LIMIT 1');
+    return rows.length === 0;
+}
+
+/** dAdmin's own administrator flag. Only consulted for first-run setup. */
+async function isDadminAdmin(empId) {
+    if (!empId) return false;
+    const [rows] = await dadmin.query(
+        'SELECT emp_access_level FROM employee WHERE emp_id = ? AND deleted_time IS NULL AND active = 1',
+        [empId]);
+    return rows.length > 0 && String(rows[0].emp_access_level || '').toLowerCase() === 'admin';
+}
+
+/** Both conditions together. Cheap to call - the first query is indexed. */
+async function inSetupMode(empId) {
+    if (!(await systemHasNoGrants())) return false;
+    return isDadminAdmin(empId);
+}
 
 /** Writes one row to tprm_audit_event. Never throws - a failed audit write
- *  must not take down the action being audited, but it is logged loudly. */
+ *  must not take down the action being audited, but it is logged loudly.
+ *
+ *  entity_id is polymorphic and holds two shapes: numeric ids from this
+ *  database (assessment_id, tenant_id) and employee ids from dadmin, which
+ *  are strings like 'DZIND148'. The column is VARCHAR, so both are written as
+ *  text and neither is coerced. See db/migrations/008_audit_entity_id.sql. */
 async function audit(req, { action, entity, entityId, before, after, reason, tenantId }) {
     try {
+        const id = entityId === null || entityId === undefined || entityId === ''
+            ? null
+            : String(entityId);
         await db.query(
             `INSERT INTO tprm_audit_event
                (actor_emp_id, actor_email, tenant_id, action, entity_type, entity_id,
@@ -21,7 +63,7 @@ async function audit(req, { action, entity, entityId, before, after, reason, ten
                 req.emp_id || null,
                 (req.tprmUser && req.tprmUser.emp_mail_id) || null,
                 tenantId || req.tenantId || null,
-                action, entity, entityId || null,
+                action, entity, id,
                 before ? JSON.stringify(before) : null,
                 after ? JSON.stringify(after) : null,
                 reason || null,
@@ -52,9 +94,14 @@ async function grantsFor(empId) {
     const byTenant = {};
     for (const r of rows) {
         const t = byTenant[r.tenant_id] || (byTenant[r.tenant_id] = {
-            roles: [], perms: new Set(), rank: 0, canGrant: false,
+            roles: [], roleNames: [], perms: new Set(), rank: 0, canGrant: false,
         });
-        if (!t.roles.includes(r.role_code)) t.roles.push(r.role_code);
+        // Codes drive logic, names are what a person reads. Both are carried so
+        // the interface never has to show 'PH' where it means 'Practice Head'.
+        if (!t.roles.includes(r.role_code)) {
+            t.roles.push(r.role_code);
+            t.roleNames.push(r.role_name);
+        }
         if (r.perm_key) t.perms.add(r.perm_key);
         t.rank = Math.max(t.rank, Number(r.rank_value));
         t.canGrant = t.canGrant || !!r.can_grant;
@@ -85,6 +132,29 @@ async function tenantScope(req, res, next) {
 
         req.tenantId = raw ? Number(raw) : null;
         req.grants = await grantsFor(req.emp_id);
+        // Only worth asking when the caller holds nothing. Anyone with a grant
+        // is past setup by definition.
+        req.setupMode = Object.keys(req.grants).length === 0
+            ? await inSetupMode(req.emp_id)
+            : false;
+
+        // verifyJWT accepts the shared dolluzcorp_token, so anyone signed into
+        // dAdmin or Inside D reaches this point without ever passing the
+        // NO_ENGAGEMENT check in /Verifylogin. Without this, they could read
+        // the whole question bank and methodology through the library routes,
+        // which carry no permission of their own. Every route file already
+        // runs tenantScope, so refusing here closes the class in one place.
+        //
+        // First run is the one exception: the person setting the system up has
+        // no grant by definition. That mode only opens when the entire system
+        // holds zero grants AND the caller is a dAdmin administrator, and it
+        // permits only client.create and user.grant.
+        if (!Object.keys(req.grants).length && !req.setupMode) {
+            return res.status(403).json({
+                error: 'NO_ENGAGEMENT',
+                message: 'You have not been assigned to a client engagement in dTprm yet.',
+            });
+        }
         next();
     } catch (e) {
         logError('tenantScope', e, req);
@@ -116,6 +186,8 @@ function requireTenant(req, res) {
 function requirePerm(permKey) {
     return (req, res, next) => {
         const grants = req.grants || {};
+        // First run: the two abilities needed to open the system up.
+        if (req.setupMode && SETUP_PERMS.has(permKey)) return next();
         if (req.tenantId) {
             const t = grants[req.tenantId];
             if (t && t.perms.has(permKey)) return next();
@@ -137,4 +209,7 @@ function requirePerm(permKey) {
 /** Convenience: every tenant id the caller is a member of. */
 const memberTenantIds = (req) => Object.keys(req.grants || {}).map(Number);
 
-module.exports = { audit, grantsFor, tenantScope, requireTenant, requirePerm, memberTenantIds };
+module.exports = {
+    audit, grantsFor, tenantScope, requireTenant, requirePerm, memberTenantIds,
+    inSetupMode, systemHasNoGrants, SETUP_PERMS,
+};
