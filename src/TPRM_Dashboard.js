@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { apiJson } from "./utils/api";
 import { useNavigate } from "react-router-dom";
 import { useAccess } from "./utils/AccessContext";
+import { roleCode } from "./utils/tprmRoles";
+import TPRMLanding from "./TPRM_Landing";
 import "./TPRM_Dashboard.css";
 
 const STATE_LABEL = {
@@ -14,12 +16,21 @@ function TPRMDashboard() {
     const navigate = useNavigate();
     const [d, setD] = useState(null);
     const [err, setErr] = useState(null);
+    // The landing counts span every client you hold a role on, so they are not
+    // reloaded when the client selector changes - only the programme position
+    // below them is.
+    const [landing, setLanding] = useState(null);
+    const code = roleCode(tenant);
 
     useEffect(() => {
         if (!tenantId) return;
         setD(null); setErr(null);
         apiJson(`/api/tprm/clients/${tenantId}/dashboard`).then(setD).catch(setErr);
     }, [tenantId]);
+
+    useEffect(() => {
+        apiJson("/api/tprm/clients/landing").then(setLanding).catch(() => setLanding(null));
+    }, []);
 
     // Landing here with no client has two very different causes, and the same
     // message for both is what made this a dead end: on first run the person
@@ -66,11 +77,16 @@ function TPRMDashboard() {
 
     return (
         <div className="tprm-page">
+            {/* Two pages stacked, deliberately. Above: what your role is holding,
+                across every client. Below: how one client is actually doing.
+                They answer different questions and neither replaces the other. */}
+            {landing && landing.stats && <TPRMLanding code={code} stats={landing.stats} />}
+
             {/* The client this position belongs to. The top bar names the page;
                 this names the subject, which is the thing that changes when the
                 client selector changes. Without it the numbers below sit on the
                 screen with nothing saying whose they are. */}
-            <div className="tprm-page-head">
+            <div className="tprm-page-head" style={{ marginTop: 26 }}>
                 <div>
                     <h1 className="tprm-page-title">{tenant ? tenant.tenant_name : ""}</h1>
                     <div className="tprm-page-sub">Programme position</div>

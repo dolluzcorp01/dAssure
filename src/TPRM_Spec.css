@@ -1,0 +1,115 @@
+/* The build-spec drawer. Navy, so it reads as a different surface from the
+   page - it describes the screen rather than being part of it. */
+
+.tprm-spec {
+    position: fixed;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    background: var(--tprm-ink);
+    color: #C3CEDB;
+    overflow-y: auto;
+    overflow-x: hidden;
+    transition: width .22s;
+    z-index: 60;
+}
+
+.tprm-spec.open {
+    width: 430px;
+    box-shadow: -8px 0 26px rgba(0, 0, 0, .24);
+}
+
+/* Fixed at the open width, so the text does not reflow as the drawer moves. */
+.tprm-spec-inner { width: 430px; padding: 24px; box-sizing: border-box; }
+
+.tprm-spec-head { display: flex; align-items: center; }
+
+.tprm-spec-eyebrow {
+    font-size: 10.5px;
+    letter-spacing: 2px;
+    color: var(--tprm-gold);
+    font-weight: 700;
+}
+
+.tprm-spec-title { font-size: 20px; font-weight: 700; color: #fff; margin-top: 3px; }
+
+.tprm-spec-close {
+    margin-left: auto;
+    background: none;
+    border: none;
+    color: var(--tprm-faint);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+}
+
+.tprm-spec-close:hover { color: #fff; }
+.tprm-spec-close:focus-visible { outline: 2px solid var(--tprm-gold); outline-offset: 2px; }
+
+.tprm-spec-who {
+    font-size: 12.5px;
+    color: var(--tprm-gold-2);
+    margin-top: 14px;
+    letter-spacing: .5px;
+}
+
+.tprm-spec-rule { height: 1px; background: rgba(255, 255, 255, .14); margin: 16px 0; }
+
+.tprm-spec-note {
+    display: flex;
+    gap: 11px;
+    margin-bottom: 13px;
+    font-size: 13.5px;
+    line-height: 1.55;
+}
+
+/* Numbered because the notes are a checklist for whoever builds the screen,
+   not prose - a reviewer needs to be able to say "note 04". */
+.tprm-spec-num {
+    color: var(--tprm-gold);
+    font-family: var(--tprm-mono);
+    font-size: 12px;
+}
+
+.tprm-spec-api { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(255, 255, 255, .14); }
+
+.tprm-spec-apilabel {
+    font-size: 10.5px;
+    letter-spacing: 2px;
+    color: var(--tprm-gold);
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.tprm-spec-call { margin-bottom: 12px; }
+.tprm-spec-callhead { display: flex; gap: 8px; align-items: baseline; }
+
+/* Reads before the path does: whether a call only looks, writes, or destroys
+   is the first thing you want to know about it. */
+.tprm-spec-method {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .5px;
+    min-width: 46px;
+    color: #E5C765;
+}
+
+.tprm-spec-method.get { color: #7FD1C8; }
+.tprm-spec-method.del { color: #E88E85; }
+
+.tprm-spec-path {
+    font-family: var(--tprm-mono);
+    font-size: 12px;
+    color: #fff;
+    word-break: break-all;
+}
+
+.tprm-spec-calldesc {
+    font-size: 11.5px;
+    color: #93A3B6;
+    margin-top: 3px;
+    padding-left: 54px;
+    line-height: 1.45;
+}

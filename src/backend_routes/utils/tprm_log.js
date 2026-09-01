@@ -80,6 +80,28 @@ function logMail(stage, info) {
 }
 
 /**
+ * The sign-in code, printed to the terminal.
+ *
+ * Only reached while OTP_MAIL_DISABLED is in force in TPRM_Login_server.js -
+ * the code is not being emailed, so this is the only place it exists in a form
+ * a person can read. It prints unconditionally for that reason: gating it on
+ * NODE_ENV would lock everyone out of a production build rather than degrade.
+ * The banner says loudly that mail is off, so this cannot be mistaken for
+ * ordinary behaviour.
+ */
+function logSignInCode({ empId, email, code, seconds }) {
+    console.log('');
+    console.log(RULE);
+    console.log('\u{1F510} ' + bold('sign-in code') + ' ' + dim(time())
+        + '   ' + yellow('OTP_MAIL_DISABLED'));
+    console.log(field('account', (email || '-') + (empId ? dim('  (' + empId + ')') : '')));
+    console.log('   ' + dim('code'.padEnd(8)) + bold(yellow('  ' + code + '  '))
+        + (seconds ? dim('  expires in ' + seconds + 's') : ''));
+    console.log(field('note', dim('mail is switched off - this is the only copy of the code')));
+    console.log(RULE);
+}
+
+/**
  * One block per backend error. `req` is optional - pass it wherever it is in
  * scope so the log says which call failed and who made it.
  */
@@ -110,4 +132,4 @@ function logError(label, err, req) {
     console.log(RULE);
 }
 
-module.exports = { logMail, logError, findOtp };
+module.exports = { logMail, logError, logSignInCode, findOtp };

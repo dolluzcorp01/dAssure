@@ -8,7 +8,12 @@ import TPRMDialogHost from "./TPRM_Dialog";
 import Login from "./TPRM_Login";
 import Dashboard from "./TPRM_Dashboard";
 import Clients from "./TPRM_Clients";
+import ClientWizard from "./TPRM_ClientWizard";
+import ClientHome from "./TPRM_ClientHome";
 import VendorPopulation from "./TPRM_VendorPopulation";
+import ThirdParties from "./TPRM_ThirdParties";
+import ClientBar from "./TPRM_ClientBar";
+import Standards from "./TPRM_Standards";
 import Assessments from "./TPRM_Assessments";
 import AssessmentDetail from "./TPRM_AssessmentDetail";
 import Findings from "./TPRM_Findings";
@@ -44,11 +49,24 @@ function App() {
                     <LeftNavbar />
                     <div className="tprm-main">
                         <TopBar />
+                        {/* Renders itself only on the pages that are about one
+                            client, so it lives here rather than in six files. */}
+                        <ClientBar />
                         <Routes>
                             <Route path="/Dashboard" element={
                                 <ProtectedRoute><Dashboard /></ProtectedRoute>} />
                             <Route path="/Clients" element={
                                 <ProtectedRoute><Clients /></ProtectedRoute>} />
+                            <Route path="/Clients/new" element={
+                                <ProtectedRoute perm="client.create"><ClientWizard /></ProtectedRoute>} />
+                            {/* Ranked below /Clients/new by the router, because a
+                                static segment always beats a dynamic one. */}
+                            <Route path="/Clients/:tenantId" element={
+                                <ProtectedRoute><ClientHome /></ProtectedRoute>} />
+                            <Route path="/Third_Parties" element={
+                                <ProtectedRoute><ThirdParties /></ProtectedRoute>} />
+                            <Route path="/Standards" element={
+                                <ProtectedRoute perm="case.comment"><Standards /></ProtectedRoute>} />
                             <Route path="/Vendor_Population" element={
                                 <ProtectedRoute perm="vendor.manage"><VendorPopulation /></ProtectedRoute>} />
                             <Route path="/Assessments" element={

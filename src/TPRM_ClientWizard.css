@@ -1,0 +1,199 @@
+/* The onboarding wizard. Two columns throughout: what you fill in on the left,
+   why it matters on the right. The right column is never a form - it is the
+   reason the left column is being asked for, which is what stops a five step
+   wizard reading as bureaucracy. */
+
+/* ------------------------------------------------------------- steps */
+
+.tprm-wz-steps { display: flex; gap: 10px; margin-bottom: 24px; }
+
+.tprm-wz-step {
+    flex: 1;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    text-align: left;
+    cursor: default;
+}
+
+/* Completed steps go back; steps ahead do not come forward. */
+.tprm-wz-step.done { cursor: pointer; }
+.tprm-wz-step:disabled { cursor: default; }
+
+.tprm-wz-bar {
+    display: block;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--tprm-line);
+}
+
+.tprm-wz-step.now .tprm-wz-bar,
+.tprm-wz-step.done .tprm-wz-bar { background: var(--tprm-gold); }
+
+.tprm-wz-steplabel {
+    display: block;
+    font-size: 12.5px;
+    margin-top: 9px;
+    font-weight: 500;
+    color: var(--tprm-faint);
+}
+
+.tprm-wz-step.now .tprm-wz-steplabel { font-weight: 700; color: var(--tprm-ink); }
+.tprm-wz-step.done .tprm-wz-steplabel { color: var(--tprm-green); }
+.tprm-wz-step.done:hover .tprm-wz-steplabel { text-decoration: underline; }
+.tprm-wz-step:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 3px; }
+
+/* ------------------------------------------------------------ layout */
+
+.tprm-wz-cols { display: flex; gap: 20px; align-items: flex-start; }
+
+/* Nothing in a step may widen the page. Whatever a card holds - a long client
+   name, a long option label - stays inside the card. */
+.tprm-wz-cols .tprm-card { max-width: 100%; box-sizing: border-box; }
+.tprm-wz-main { flex: 1.4; min-width: 0; }
+.tprm-wz-side { flex: 1; min-width: 0; }
+
+.tprm-wz-aside { background: var(--tprm-wash); }
+.tprm-wz-overlay { border-top: 4px solid var(--tprm-gold); margin-top: 16px; }
+.tprm-wz-create { border-top: 4px solid var(--tprm-green); }
+.tprm-wz-sla-card { margin-bottom: 16px; }
+.tprm-wz-spaced { margin-top: 18px; }
+.tprm-wz-spacer { flex: 1; }
+
+.tprm-wz-group { margin-bottom: 18px; }
+
+.tprm-wz-headrow { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.tprm-wz-headrow .tprm-lab { margin-bottom: 0; }
+
+.tprm-wz-prose {
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--tprm-muted);
+    margin: 0 0 10px;
+}
+
+.tprm-wz-prose:last-child { margin-bottom: 0; }
+.tprm-wz-prose b { color: var(--tprm-ink); }
+.tprm-wz-no { color: var(--tprm-red); }
+
+.tprm-wz-list {
+    margin: 2px 0 0 18px;
+    padding: 0;
+    font-size: 14px;
+    color: var(--tprm-muted);
+    line-height: 1.9;
+}
+
+.tprm-wz-overlaysub { font-size: 13.5px; color: var(--tprm-muted); margin-bottom: 10px; }
+
+/* A code is one token that appears in every document reference, so it is set
+   in the same face those references use. */
+.tprm-wz-code { font-family: var(--tprm-mono); letter-spacing: 1px; }
+
+/* ------------------------------------------------------------- chips */
+
+.tprm-wz-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.tprm-wz-toggle { cursor: pointer; font: inherit; font-size: 11.5px; }
+
+/* Off is a real state, not an absence: the option has to stay readable so you
+   can see what you did not choose. */
+.tprm-wz-toggle.off {
+    background: #F1F4F7;
+    border-color: var(--tprm-line);
+    color: var(--tprm-muted);
+}
+
+.tprm-wz-toggle.off:hover { border-color: var(--tprm-faint); color: var(--tprm-body); }
+.tprm-wz-toggle:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 2px; }
+
+/* ------------------------------------------------------------- dials */
+
+.tprm-wz-dial {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+}
+
+.tprm-wz-dial label { flex: 1; font-size: 14px; color: var(--tprm-body); }
+.tprm-wz-dial input[type="range"] { width: 150px; accent-color: var(--tprm-blue); }
+
+/* Fixed width and tabular figures, so the column of numbers does not shift
+   while a slider is being dragged. */
+.tprm-wz-dial b { width: 46px; text-align: right; font-weight: 700; }
+
+.tprm-wz-sla {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+}
+
+.tprm-wz-sla b { margin-left: auto; }
+
+/* -------------------------------------------------------------- team */
+
+.tprm-wz-member {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+}
+
+.tprm-wz-who { flex: 1; min-width: 0; }
+.tprm-wz-name { font-size: 14px; font-weight: 600; }
+.tprm-wz-mail { font-size: 12.5px; color: var(--tprm-faint); margin-top: 2px; }
+.tprm-wz-remove { color: var(--tprm-red); margin-left: auto; }
+
+/* The add row aligns on the buttons rather than the labels, so the control and
+   the field it acts on sit on the same line. */
+.tprm-wz-add {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}
+
+/* min-width: 0 is the whole fix for a long name. A flex item defaults to
+   min-width: auto, which means it refuses to shrink below its own content -
+   so a colleague called Anandth Shoban Balasubramanian widened this row past
+   the card and shoved Add off the side of the page. The select inside already
+   knows how to truncate; it was never being allowed to. */
+.tprm-wz-add .tprm-field { flex: 1 1 240px; min-width: 0; margin-bottom: 0; }
+
+/* The role is a short, known set of words. It does not need to grow with the
+   name beside it. */
+.tprm-wz-add .tprm-field.role { flex: 0 1 190px; }
+
+/* Add is the point of the row, so it is the one thing that never shrinks. */
+.tprm-wz-add .tprm-btn { flex: 0 0 auto; white-space: nowrap; margin-bottom: 1px; }
+
+/* ------------------------------------------------------------ review */
+
+.tprm-wz-review {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px dashed var(--tprm-line-soft);
+}
+
+.tprm-wz-rlabel { width: 200px; flex: 0 0 200px; font-size: 13px; color: var(--tprm-muted); }
+.tprm-wz-rvalue { flex: 1; font-size: 14.5px; font-weight: 600; min-width: 0; }
+
+/* -------------------------------------------------------------- foot */
+
+.tprm-wz-foot { display: flex; gap: 10px; margin-top: 24px; }
+
+@media (max-width: 1080px) {
+    .tprm-wz-cols { flex-direction: column; }
+    .tprm-wz-main, .tprm-wz-side { width: 100%; flex: none; }
+    .tprm-wz-steps { flex-wrap: wrap; }
+    .tprm-wz-step { min-width: 140px; }
+    .tprm-wz-add .tprm-field { flex-basis: 100%; }
+}

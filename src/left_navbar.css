@@ -1,6 +1,6 @@
 /* Sidebar. Fixed 244px navy rail carrying navigation and nothing else - the
    client selector and the account actions live in the top bar. Rows are text
-   only; the active one is marked by a 3px orange edge. */
+   only; the active one is marked by a 3px gold edge. */
 
 .tprm-navbar {
     position: fixed;
@@ -17,19 +17,12 @@
 }
 
 /* ------------------------------------------------------------- brand */
+
+/* Wordmark only. The eagle is carried on the login banner, where it has room
+   to be a mark; at 30px beside two lines of tracked caps it was just noise. */
 .tprm-nav-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
     padding: 20px 20px 16px;
     border-bottom: 1px solid rgba(255, 255, 255, .08);
-}
-
-.tprm-nav-logo {
-    width: 30px;
-    height: 30px;
-    object-fit: contain;
-    flex: 0 0 30px;
 }
 
 .tprm-nav-brandname {
@@ -99,13 +92,37 @@
     text-transform: uppercase;
     color: #63758A;
     font-weight: 700;
-    margin-bottom: 6px;
 }
 
 .tprm-nav-username { font-size: 14px; color: #fff; margin-top: 5px; }
 
+/* Colour is set inline, from the role held on the selected client. Gold is only
+   the fallback, for the two roles whose own colour is the rail's own navy. */
 .tprm-nav-userrole {
     font-size: 11.5px;
+    font-weight: 600;
     color: var(--tprm-gold);
     margin-top: 2px;
+}
+
+/* ---------------------------------------------------------- grouping */
+
+/* The rail carries two kinds of page: system wide things that belong to no
+   client, and the third party risk work itself. The heading names the second
+   group; the first needs no label, because "everything above the line" is
+   already what it means. */
+.tprm-nav-rule {
+    height: 1px;
+    background: rgba(255, 255, 255, .08);
+    margin: 12px 20px;
+}
+
+.tprm-nav-section {
+    font-size: 10px;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    color: #63758A;
+    font-weight: 700;
+    padding: 0 20px;
+    margin-bottom: 8px;
 }

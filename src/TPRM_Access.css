@@ -1,0 +1,343 @@
+/* The access module: Login, Two factor, Forgot password, Accept invitation.
+   Measurements are taken from Dolluz_TPRM_UI_Reference.jsx, not approximated. */
+
+/* --------------------------------------------------------- logo lock */
+
+/* Eagle beside a two-line wordmark. One component, scaled, so the mark on the
+   dark banner and the mark above the form are the same object at two sizes
+   rather than two things that happen to look alike. */
+.tprm-lock { display: flex; align-items: center; gap: 12px; }
+.tprm-lock img { height: 44px; width: auto; }
+.tprm-lock-name {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: var(--tprm-ink);
+    line-height: 1;
+}
+.tprm-lock.dark .tprm-lock-name { color: #fff; }
+.tprm-lock-sub {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 3.6px;
+    color: var(--tprm-gold);
+    margin-top: 4px;
+}
+
+/* .86 scale for the mark above the sign-in form. */
+.tprm-lock.sm img { height: 37.8px; }
+.tprm-lock.sm { gap: 10.3px; }
+.tprm-lock.sm .tprm-lock-name { font-size: 14.6px; letter-spacing: 2.58px; }
+.tprm-lock.sm .tprm-lock-sub { font-size: 7.7px; letter-spacing: 3.1px; margin-top: 3.4px; }
+
+/* ------------------------------------------------------------- login */
+
+.tprm-login { display: flex; min-height: 100vh; }
+
+.tprm-login-panel {
+    flex: 1;
+    min-width: 620px;
+    background: linear-gradient(140deg, #0E1A2B 0%, #1E3350 100%);
+    transition: background .9s ease;
+    color: #fff;
+    padding: 46px 62px 52px;
+    position: relative;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+/* Cropped on purpose: the eagle runs off the corner rather than sitting in it,
+   which reads as a watermark instead of a sticker. */
+.tprm-login-mark {
+    position: absolute;
+    right: -180px;
+    bottom: -140px;
+    height: 720px;
+    opacity: .055;
+    pointer-events: none;
+}
+
+.tprm-login-rings {
+    position: absolute;
+    left: -120px;
+    top: 120px;
+    width: 620px;
+    opacity: .07;
+    pointer-events: none;
+}
+
+.tprm-login-panelbody {
+    position: absolute;
+    left: 62px;
+    right: 62px;
+    top: 50%;
+    transform: translateY(-52%);
+}
+
+/* Gold fill with near-black text. Gold as text fails contrast on any ground,
+   so it is only ever a fill. */
+.tprm-login-tag {
+    display: inline-block;
+    font-size: 11px;
+    letter-spacing: 3.4px;
+    font-weight: 700;
+    color: var(--tprm-gold-ink);
+    background: var(--tprm-gold);
+    padding: 6px 14px;
+    border-radius: 4px;
+}
+
+.tprm-login-headline {
+    font-size: 48px;
+    font-weight: 700;
+    margin: 22px 0 0;
+    line-height: 1.12;
+    max-width: 620px;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+}
+
+.tprm-login-sub {
+    font-size: 18px;
+    margin: 20px 0 0;
+    line-height: 1.65;
+    color: rgba(255, 255, 255, .80);
+    max-width: 560px;
+}
+
+.tprm-login-rule { height: 3px; width: 90px; background: var(--tprm-gold); margin-top: 30px; }
+
+/* What the library actually contains, on the way in. */
+.tprm-login-stats { display: flex; gap: 44px; margin-top: 30px; }
+.tprm-login-stat-n {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+}
+.tprm-login-stat-l { font-size: 12.5px; color: rgba(255, 255, 255, .60); margin-top: 2px; }
+
+.tprm-login-dots {
+    position: absolute;
+    left: 62px;
+    bottom: 52px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.tprm-login-dots button {
+    width: 12px;
+    height: 5px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .30);
+    cursor: pointer;
+    padding: 0;
+    transition: all .45s;
+}
+
+.tprm-login-dots button.on { width: 38px; background: var(--tprm-gold); }
+.tprm-login-dots button:focus-visible { outline: 2px solid var(--tprm-gold-2); outline-offset: 3px; }
+
+/* Says whether the carousel is running, so a paused one does not read as
+   broken to somebody who has stopped it by resting the pointer there. */
+.tprm-login-rotstate {
+    margin-left: 14px;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, .38);
+}
+
+.tprm-login-tagline {
+    position: absolute;
+    right: 62px;
+    bottom: 52px;
+    font-size: 11.5px;
+    color: rgba(255, 255, 255, .34);
+    letter-spacing: 1.4px;
+}
+
+/* -------------------------------------------------------- form pane */
+
+.tprm-login-form {
+    flex: 0 0 520px;
+    width: 520px;
+    background: #fff;
+    padding: 0 52px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+.tprm-login-formbox { width: 100%; }
+.tprm-login-formlock { margin-bottom: 40px; }
+.tprm-login-formbox h2 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+
+.tprm-login-formsub {
+    font-size: 14px;
+    color: var(--tprm-muted);
+    margin: 7px 0 28px;
+    line-height: 1.5;
+}
+
+.tprm-login-optrow {
+    display: flex;
+    align-items: center;
+    font-size: 13.5px;
+    margin-bottom: 22px;
+}
+
+.tprm-login-remember { color: var(--tprm-muted); display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.tprm-login-forgot { margin-left: auto; color: var(--tprm-blue); font-weight: 600; }
+
+.tprm-login-foot { font-size: 12.5px; color: var(--tprm-faint); margin-top: 16px; line-height: 1.6; }
+.tprm-login-err { font-size: 12px; color: var(--tprm-red); margin-top: 5px; }
+
+/* ------------------------------------------------- the centred cards */
+
+.tprm-centered {
+    min-height: 100vh;
+    background: var(--tprm-bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+}
+
+.tprm-centered-inner { width: 470px; max-width: 100%; }
+.tprm-centered-inner.wide { width: 560px; }
+
+.tprm-centered-brand { text-align: center; margin-bottom: 26px; }
+.tprm-centered-brand .n {
+    font-size: 19px;
+    font-weight: 800;
+    letter-spacing: 3.5px;
+    color: var(--tprm-ink);
+}
+.tprm-centered-brand .s {
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: var(--tprm-gold);
+    margin-top: 3px;
+    font-weight: 700;
+}
+
+.tprm-centered-title { font-size: 24px; font-weight: 700; text-align: center; }
+.tprm-centered-sub {
+    font-size: 14px;
+    color: var(--tprm-muted);
+    text-align: center;
+    margin: 8px 0 24px;
+    line-height: 1.6;
+}
+
+/* ------------------------------------------------------- two factor */
+
+/* Six boxes, not one field. It tells you how many digits are wanted before
+   you start, and a wrong-length code becomes impossible rather than rejected. */
+.tprm-otp { display: flex; gap: 10px; justify-content: center; margin: 10px 0 24px; }
+
+.tprm-otp input {
+    width: 54px;
+    height: 62px;
+    text-align: center;
+    font-size: 26px;
+    font-weight: 700;
+    border: 1px solid var(--tprm-line);
+    border-radius: 9px;
+    font-family: var(--tprm-mono);
+    outline: none;
+    background: #fff;
+    color: var(--tprm-body);
+}
+
+/* A filled box darkens its own border, so progress along the row is visible
+   without counting. */
+.tprm-otp input.filled { border-color: var(--tprm-ink); }
+.tprm-otp input:focus { border-color: var(--tprm-gold); box-shadow: 0 0 0 3px rgba(201, 162, 39, .22); }
+
+.tprm-access-link {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 13.5px;
+}
+
+.tprm-linkbtn {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    color: var(--tprm-blue);
+    cursor: pointer;
+}
+
+.tprm-linkbtn:hover { text-decoration: underline; }
+.tprm-linkbtn:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 3px; border-radius: 2px; }
+
+/* --------------------------------------------------------- invite */
+
+.tprm-invite-facts { background: var(--tprm-wash); border-radius: 12px; padding: 20px; margin-bottom: 22px; }
+.tprm-invite-facts > div { display: flex; padding: 7px 0; font-size: 14px; }
+.tprm-invite-facts span { color: var(--tprm-muted); width: 130px; flex: 0 0 130px; }
+
+@media (max-width: 1100px) {
+    .tprm-login { flex-direction: column; }
+    .tprm-login-panel { min-width: 0; padding: 28px; min-height: 340px; }
+    .tprm-login-panelbody { position: static; transform: none; }
+    .tprm-login-dots, .tprm-login-tagline { position: static; margin-top: 22px; }
+    .tprm-login-headline { font-size: 30px; }
+    .tprm-login-sub { font-size: 15px; }
+    .tprm-login-stats { gap: 26px; }
+    .tprm-login-form { flex: 1; width: auto; padding: 32px 24px; }
+    .tprm-otp input { width: 44px; height: 52px; font-size: 21px; }
+}
+
+/* The reference's Lab: the small tracked caps used above a group. */
+.tprm-lab {
+    font-size: 10.5px;
+    letter-spacing: 1.4px;
+    color: var(--tprm-faint);
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+
+/* ---------------------------------------------------------- otp clock */
+
+/* Sits directly under the boxes it describes. Tabular figures so the line
+   does not shiver as the digits tick. */
+.tprm-otp-clock {
+    text-align: center;
+    font-size: 13px;
+    color: var(--tprm-muted);
+    margin: -10px 0 20px;
+}
+
+.tprm-otp-clock .mono { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* Amber for the last thirty seconds, red once it is gone. The number is the
+   primary signal; colour only confirms it. */
+.tprm-otp-clock.low { color: var(--tprm-amber); }
+.tprm-otp-clock.out { color: var(--tprm-red); font-weight: 600; }
+
+/* ------------------------------------------------------------ autofill */
+
+/* An animation whose only job is to exist. Chrome applies it the moment it
+   autofills a field, which gives useAutofillSync an animationstart event to
+   listen for - there is no autofill event of any kind.
+
+   It has to animate something real. A keyframe pair that changes nothing gets
+   optimised away and never fires. outline-color is the inert choice: no outline
+   is drawn, because outline-style is none, so the two values differ on paper
+   and nowhere on screen. */
+@keyframes tprm-autofill {
+    from { outline-color: rgba(0, 0, 0, 0); }
+    to { outline-color: rgba(0, 0, 0, .01); }
+}
+
+.tprm-input:-webkit-autofill {
+    animation-name: tprm-autofill;
+    animation-duration: 1ms;
+}

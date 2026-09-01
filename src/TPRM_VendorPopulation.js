@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiJson, apiPost, apiPut, apiUpload, apiDownload, API_BASE } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
@@ -6,24 +7,49 @@ import { FaRegEnvelopeOpen, FaPaperPlane } from "react-icons/fa";
 import TPRMMailPreview from "./TPRM_MailPreview";
 import "./TPRM_VendorPopulation.css";
 import TPRMSelect from "./TPRM_Select";
+import TPRMClientBar from "./TPRM_ClientBar";
 
-// The pipeline, left to right. Each step is a tab rather than a locked wizard,
-// because real engagements loop back: a supplier list arrives in three parts
-// and triage restarts while classification is still being reviewed.
-const STEPS = [
-    { key: "template", label: "Intake template" },
-    { key: "upload", label: "Upload list" },
-    { key: "classify", label: "Classify" },
-    { key: "triage", label: "Triage" },
-    { key: "tiering", label: "Tiering" },
-    { key: "distribute", label: "Distribution" },
-    { key: "import", label: "Import responses" },
-];
+// What each step of the pipeline is called, and what the heading over it says.
+// The rail that moves between the steps lives in the client bar, because the
+// bar is what names the engagement they all belong to.
+//
+// Each step is reachable directly rather than being a locked wizard, because
+// real engagements loop back: a supplier list arrives in three parts and
+// triage restarts while classification is still being reviewed.
+const STEP_HEADS = {
+    template: ["Intake template",
+        "Send this to the client. They export their supplier master into it, usually in one pass."],
+    upload: ["Upload vendor list",
+        "Excel or CSV. Column headings do not have to match ours, we map them."],
+    classify: ["Classification review",
+        "The rules have suggested an instrument for every supplier. Confirm, or correct the ones that matter."],
+    triage: ["Triage, scope decision",
+        "Descope the noise before anyone is asked a hundred questions."],
+    tiering: ["Tiering",
+        "Only the client can answer these. They describe the relationship, not the supplier own controls."],
+    distribute: ["Issue and track",
+        "Both delivery routes stay available, and every supplier carries an owner."],
+    import: ["Import returned pack",
+        "Drop the whole ZIP the client sends back. Every workbook inside is read and reported separately."],
+};
 
 function TPRMVendorPopulation() {
     const { tenantId, tenant } = useAccess();
-    const [step, setStep] = useState("overview");
+    // The step lives in the URL rather than in state, so the Vendor Population
+    // tab in the client bar can get back here from inside a step: it navigates
+    // to the bare route, and the query drops off with it.
+    const [params, setParams] = useSearchParams();
+    // An unknown step is the overview rather than a blank screen: the query
+    // is user editable, and a hand typed ?step=classifed should not white out.
+    const asked = params.get("step");
+    const step = asked && STEP_HEADS[asked] ? asked : "overview";
     const [funnel, setFunnel] = useState(null);
+
+    const goto = useCallback((key) => {
+        if (!key || key === "overview") setParams({});
+        else setParams({ step: key });
+        window.scrollTo(0, 0);
+    }, [setParams]);
 
     const loadFunnel = useCallback(() => {
         if (!tenantId) return;
@@ -32,128 +58,156 @@ function TPRMVendorPopulation() {
 
     useEffect(() => { loadFunnel(); }, [loadFunnel, step]);
 
-    if (!tenantId) {
-        return <div className="tprm-page"><div className="tprm-note warn">Select a client first.</div></div>;
-    }
-
     const Body = {
         template: StepTemplate, upload: StepUpload, classify: StepClassify,
         triage: StepTriage, tiering: StepTiering, distribute: StepDistribute,
         import: StepImport,
     }[step];
+    const head = STEP_HEADS[step];
 
     return (
         <div className="tprm-page">
+            {/* The bar names the client every screen below is scoped to, and
+                carries the rail once you are inside a step. On the overview
+                there is no rail: the funnel is the navigation there. */}
+            <TPRMClientBar
+                active="pop"
+                sub={step === "overview" ? null : step}
+                onStep={goto}
+            />
+
+            {!tenantId ? (
+                <div className="tprm-note warn">Select a client first.</div>
+            ) : step === "overview" ? (
+                funnel
+                    ? <Overview funnel={funnel} tenant={tenant} goto={goto} />
+                    : <div className="tprm-loading">Working out where the population is...</div>
+            ) : (
+                <>
+                    <div className="tprm-page-head">
+                        <div>
+                            <h1 className="tprm-page-title">{head ? head[0] : "Vendor population"}</h1>
+                            {head && <div className="tprm-page-sub">{head[1]}</div>}
+                        </div>
+                    </div>
+                    <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel} goto={goto} />
+                </>
+            )}
+        </div>
+    );
+}
+
+/* ------------------------------------------------------------- overview */
+
+/* The funnel. Nobody assesses the whole register, and nobody should - so the
+   shape of the narrowing is the first thing this screen says. Bars are scaled
+   against the population received, which is the only honest denominator.
+
+   Five stages, and each one is a filter rather than a queue: a supplier does
+   not leave a stage, it accumulates into the next. */
+const FUNNEL_STAGES = [
+    ["Population received", "received", "var(--tprm-ink)", "#fff",
+        "Full supplier list uploaded from the client procurement export"],
+    ["Classified", "classified", "var(--tprm-blue)", "#fff",
+        "Instrument suggested by rule, confirmed by an assessor"],
+    ["In scope after triage", "in_scope", "var(--tprm-purple)", "#fff",
+        "Descoped: no data, no access, one-off purchases below threshold"],
+    ["Tiered", "tiered", "var(--tprm-amber)", "#fff",
+        "Inherent tiering complete, Tier 1 and 2 proceed to assessment"],
+    ["Assessed", "assessed", "var(--tprm-green)", "#fff",
+        "Control assessment issued, returned and scored"],
+];
+
+/* Where to go next, for someone who has just read the funnel and can see which
+   stage is starving. Each card carries its own live backlog, so the number is
+   the reason to open it rather than decoration. */
+const OVERVIEW_ACTIONS = [
+    ["Classify", "awaiting_classify", "suppliers need a category confirmed",
+        "classify", "var(--tprm-blue)"],
+    ["Triage", "awaiting_triage", "suppliers awaiting a scope decision",
+        "triage", "var(--tprm-purple)"],
+    ["Issue", "awaiting_issue", "tiered suppliers ready for a questionnaire",
+        "distribute", "var(--tprm-amber)"],
+    ["Import", "awaiting_import", "returned packs waiting to be read in",
+        "import", "var(--tprm-green)"],
+];
+
+function Overview({ funnel, tenant, goto }) {
+    const received = Number(funnel.received) || 0;
+    const assessed = Number(funnel.assessed) || 0;
+    // Never divide by the count of an empty register. An untouched client
+    // should show five empty tracks, not five full ones.
+    const max = Math.max(1, received);
+
+    return (
+        <>
             <div className="tprm-page-head">
                 <div>
                     <h1 className="tprm-page-title">Vendor population</h1>
                     <div className="tprm-page-sub">
-                        {tenant ? tenant.tenant_name : ""} &nbsp;|&nbsp; From a supplier list to issued questionnaires
+                        {tenant ? tenant.tenant_name + ". " : ""}
+                        {received} supplier{received === 1 ? "" : "s"} received,
+                        {" "}{assessed} fully assessed.
                     </div>
+                </div>
+                <div className="tprm-page-actions">
+                    <button className="tprm-btn" onClick={() => goto("template")}>
+                        Intake template
+                    </button>
+                    <button className="tprm-btn gold" onClick={() => goto("upload")}>
+                        Upload vendor list
+                    </button>
                 </div>
             </div>
 
-            {/* Navigation before content. The rail is how this screen is steered,
-                so it sits directly under the heading rather than below a card -
-                otherwise the funnel reads as if it belonged to step one. */}
-            <div className="tprm-steps">
-                <button
-                    className={"tprm-step" + (step === "overview" ? " active" : "")}
-                    onClick={() => { setStep("overview"); loadFunnel(); }}
-                >
-                    <span className="n">0</span>Overview
-                </button>
-                {STEPS.map((s, i) => (
-                    <React.Fragment key={s.key}>
-                        <span className="tprm-step-arrow">&rarr;</span>
-                        <button
-                            className={"tprm-step" + (step === s.key ? " active" : "")}
-                            onClick={() => setStep(s.key)}
-                        >
-                            <span className="n">{i + 1}</span>{s.label}
-                        </button>
-                    </React.Fragment>
-                ))}
-            </div>
-
-            {/* The funnel is the overview, not permanent furniture. Kept on every
-                step it would eat half the screen on the ones where the work is. */}
-            {step === "overview"
-                ? (funnel
-                    ? <><Funnel funnel={funnel} /><OverviewActions goto={setStep} /></>
-                    : <div className="tprm-loading">Working out where the population is...</div>)
-                : <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel} goto={setStep} />}
-        </div>
-    );
-}
-
-/* The funnel. Nobody assesses the whole register, and nobody should - so the
-   shape of the narrowing is the first thing this screen says. Bars are scaled
-   against the population received, which is the only honest denominator. */
-const FUNNEL_STAGES = [
-    ["Population received", "received", "var(--tprm-ink)", "#fff",
-        "Supplier master exported from procurement"],
-    ["Classified", "classified", "var(--tprm-blue)", "#fff",
-        "Instrument suggested by rule, confirmed by an assessor"],
-    ["In scope after triage", "in_scope", "var(--tprm-purple)", "#fff",
-        "Descoped: no data, no access, below threshold"],
-    ["Tiered", "tiered", "var(--tprm-amber)", "#fff",
-        "Inherent tiering complete, Tier 1 and 2 proceed"],
-    ["Questionnaire issued", "issued", "var(--tprm-gold)", "var(--tprm-gold-ink)",
-        "Sent to the supplier, or bundled for the client to forward"],
-    ["Assessed", "assessed", "var(--tprm-green)", "#fff",
-        "Control assessment returned, scored and approved"],
-];
-
-function Funnel({ funnel }) {
-    const max = Math.max(1, Number(funnel.received) || 0);
-    return (
-        <div className="tprm-card" style={{ marginBottom: 18 }}>
-            <div className="tprm-card-title" style={{ marginBottom: 6 }}>
-                The funnel. Nobody assesses the whole register, and nobody should
-            </div>
-            {FUNNEL_STAGES.map(([label, key, fill, ink, why]) => {
-                const n = Number(funnel[key]) || 0;
-                return (
-                    <div className="tprm-funnel-row" key={key}>
-                        <div className="tprm-funnel-label">{label}</div>
-                        <div className="tprm-funnel-track">
-                            <div
-                                className="tprm-funnel-fill"
-                                style={{ width: (n / max * 100) + "%", background: fill, color: ink }}
-                            >
-                                <span>{n}</span>
+            <div className="tprm-card" style={{ marginBottom: 18 }}>
+                <div className="tprm-card-title" style={{ marginBottom: 6 }}>
+                    The funnel. Nobody assesses the whole register, and nobody should
+                </div>
+                {FUNNEL_STAGES.map(([label, key, fill, ink, why]) => {
+                    const n = Number(funnel[key]) || 0;
+                    return (
+                        <div className="tprm-funnel-row" key={key}>
+                            <div className="tprm-funnel-label">{label}</div>
+                            <div className="tprm-funnel-track">
+                                <div
+                                    className="tprm-funnel-fill"
+                                    style={{ width: (n / max * 100) + "%", background: fill, color: ink }}
+                                >
+                                    <span>{n}</span>
+                                </div>
                             </div>
+                            <div className="tprm-funnel-why">{why}</div>
                         </div>
-                        <div className="tprm-funnel-why">{why}</div>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
+                    );
+                })}
+            </div>
 
-/* Where to go next, for someone who has just read the funnel and can see which
-   stage is starving. The rail above reaches every step; these four are the ones
-   a stalled funnel usually needs. */
-const OVERVIEW_ACTIONS = [
-    ["Send template", "Ask the client for their supplier list", "template", "var(--tprm-ink)"],
-    ["Upload list", "Read a completed workbook into the register", "upload", "var(--tprm-blue)"],
-    ["Classify", "Confirm the suggested instrument", "classify", "var(--tprm-purple)"],
-    ["Triage", "Decide what is in scope", "triage", "var(--tprm-amber)"],
-];
+            <div className="tprm-grid k4">
+                {OVERVIEW_ACTIONS.map(([title, key, why, target, colour]) => {
+                    const n = Number(funnel[key]) || 0;
+                    return (
+                        <div className="tprm-card tprm-kpi" key={target}
+                            style={{ borderTopColor: colour }}>
+                            <div className="tprm-pop-actiontitle">{title}</div>
+                            <div className="tprm-kpi-sub tprm-pop-actionwhy">
+                                <b style={{ color: colour }}>{n}</b> {why}
+                            </div>
+                            <button className="tprm-btn primary sm" onClick={() => goto(target)}>
+                                Open
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
 
-function OverviewActions({ goto }) {
-    return (
-        <div className="tprm-grid k4">
-            {OVERVIEW_ACTIONS.map(([title, why, key, colour]) => (
-                <div className="tprm-card tprm-kpi" key={key} style={{ borderTopColor: colour }}>
-                    <div style={{ fontSize: 16, fontWeight: 700 }}>{title}</div>
-                    <div className="tprm-kpi-sub" style={{ minHeight: 38, lineHeight: 1.45 }}>{why}</div>
-                    <button className="tprm-btn primary sm" onClick={() => goto(key)}>Open</button>
-                </div>
-            ))}
-        </div>
+            <div className="tprm-note blue" style={{ marginTop: 18 }}>
+                A single add form exists for one-off suppliers, but it is never the main
+                path. At a hundred and fifty suppliers it would take a day of typing and
+                the sector would be guessed. The pipeline above is the main path, and the
+                classification is suggested rather than typed.
+            </div>
+        </>
     );
 }
 
@@ -430,16 +484,35 @@ function StepUpload({ tenantId, onChanged, goto }) {
 }
 
 /* ================================================ 3. classification */
+
+/* The four numbers this step opens on. The last one is the only one that moves
+   as you work: it is the size of the job still in front of you. */
+const CLASSIFY_CARDS = [
+    ["high", "Suggested with high confidence", "var(--tprm-green)"],
+    ["low", "Low confidence, check these", "var(--tprm-amber)"],
+    ["none", "No suggestion, needs a category", "var(--tprm-red)"],
+    ["awaiting", "Still awaiting confirmation", "var(--tprm-blue)"],
+];
+
 function StepClassify({ tenantId, onChanged, goto }) {
-    const [rows, setRows] = useState(null);
+    const [d, setD] = useState(null);
     const [sectors, setSectors] = useState([]);
+    const [rules, setRules] = useState(null);
+    const [busy, setBusy] = useState(false);
 
     const load = useCallback(() => {
-        apiJson(`/api/tprm/vendors/${tenantId}/classification`).then(setRows).catch(() => setRows([]));
+        apiJson(`/api/tprm/vendors/${tenantId}/classification`)
+            .then(setD).catch(() => setD({ rows: [], summary: {} }));
     }, [tenantId]);
 
     useEffect(() => { load(); }, [load]);
-    useEffect(() => { apiJson("/api/tprm/library/sectors").then(setSectors).catch(() => {}); }, []);
+    useEffect(() => {
+        apiJson("/api/tprm/library/sectors").then(setSectors).catch(() => {});
+        // Reading the rule table needs instrument.author, which an Engagement
+        // Manager does not hold. Rather than show an empty card to half the
+        // people who use this screen, the card is dropped when it 403s.
+        apiJson("/api/tprm/library/classify-rules").then(setRules).catch(() => setRules([]));
+    }, []);
 
     const change = async (id, sectorCode) => {
         try {
@@ -448,38 +521,86 @@ function StepClassify({ tenantId, onChanged, goto }) {
         } catch (e) { tprmAlert.apiError(e); }
     };
 
-    if (!rows) return <div className="tprm-loading">Loading...</div>;
+    const confirmOne = async (id) => {
+        try {
+            await apiPost(`/api/tprm/vendors/third-parties/${id}/confirm-sector`, {});
+            load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); }
+    };
+
+    const acceptAll = async () => {
+        setBusy(true);
+        try {
+            const r = await apiPost(`/api/tprm/vendors/${tenantId}/classification/accept-all`, {});
+            load(); onChanged();
+            tprmAlert.success(r.confirmed
+                ? `${r.confirmed} ${r.confirmed === 1 ? "supplier" : "suppliers"} confirmed`
+                : "Nothing left to accept");
+        } catch (e) {
+            tprmAlert.apiError(e);
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    // The endpoint returns one row per keyword. A person reads them per
+    // instrument, which is how the rule is actually written.
+    const ruleGroups = [];
+    for (const r of rules || []) {
+        let g = ruleGroups.find(x => x.code === r.sector_code);
+        if (!g) ruleGroups.push(g = {
+            code: r.sector_code, name: r.sector_name || r.sector_code, keywords: [],
+        });
+        g.keywords.push(r.keyword);
+    }
+
+    if (!d) return <div className="tprm-loading">Loading...</div>;
+
+    const { rows, summary } = d;
+    // Everything the rules classified has already been agreed with, so the bulk
+    // action has nothing left to do.
+    const nothingToAccept = rows.every(r => r.sector_confirmed_time || !r.sector_code);
 
     return (
         <>
-            <div className="tprm-note" style={{ marginBottom: 16 }}>
-                Sorted worst confidence first, so you review only what the rules were unsure about.
-                Anything above 80% is usually safe to leave alone.
-            </div>
-            {/* The step ends somewhere. Without this the only way on is the rail,
-                which reads as navigation rather than as finishing the job. */}
-            {/* The forward action sits at the right edge, where the eye lands
-                after reading a row left to right. */}
             <div className="tprm-step-actions">
+                <button className="tprm-btn" onClick={acceptAll} disabled={busy || nothingToAccept}>
+                    {busy ? "Accepting..." : "Accept all suggestions"}
+                </button>
                 <button className="tprm-btn gold" onClick={() => goto("triage")}>
                     Continue to triage
                 </button>
             </div>
+
+            <div className="tprm-cls-cards">
+                {CLASSIFY_CARDS.map(([key, label, colour]) => (
+                    <div className="tprm-card tprm-cls-card" key={key} style={{ borderTopColor: colour }}>
+                        <div className="tprm-cls-n" style={{ color: colour }}>{summary[key] ?? 0}</div>
+                        <div className="tprm-cls-l">{label}</div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="tprm-note" style={{ marginBottom: 16 }}>
+                Unconfirmed first, worst confidence first within that, so you review only what the
+                rules were unsure about. Anything above 90% is usually safe to accept.
+            </div>
+
             <div className="tprm-card flush">
                 <table className="tprm-table">
                     <thead>
                         <tr>
                             <th>Ref</th><th>Supplier</th><th>Service line</th>
                             <th>Their spend category</th>
-                            <th style={{ width: 240 }}>Instrument</th><th>Confidence</th>
+                            <th style={{ width: 240 }}>Instrument</th><th>Confidence</th><th />
                         </tr>
                     </thead>
                     <tbody>
                         {rows.map(r => (
-                            /* Anything the rules were unsure about is tinted, so a
-                               long register shows its own review queue. */
+                            /* Anything still unconfirmed is tinted, so a long
+                               register shows its own review queue. */
                             <tr key={r.third_party_id}
-                                className={Number(r.confidence) < 90 ? "tprm-row-attention" : ""}>
+                                className={r.sector_confirmed_time ? "" : "tprm-row-attention"}>
                                 <td className="num">{r.ref_code}</td>
                                 <td style={{ fontWeight: 600 }}>{r.third_party_name}</td>
                                 <td style={{ color: "var(--tprm-muted)", maxWidth: 320 }}>{r.service_desc}</td>
@@ -490,11 +611,13 @@ function StepClassify({ tenantId, onChanged, goto }) {
                                 </td>
                                 <td>
                                     <TPRMSelect
+                                        className={r.sector_code ? "" : "tprm-sel-required"}
                                         value={r.sector_code}
                                         onChange={v => change(r.third_party_id, v)}
+                                        placeholder="Choose an instrument"
                                         ariaLabel={`Instrument for ${r.third_party_name}`}
-                                        options={sectors.map(s => ({
-                                            value: s.sector_code, label: s.sector_name,
+                                        options={sectors.map(x => ({
+                                            value: x.sector_code, label: x.sector_name,
                                         }))}
                                     />
                                 </td>
@@ -502,29 +625,48 @@ function StepClassify({ tenantId, onChanged, goto }) {
                                     label. Confidence is a quantity, and the eye
                                     can sort a column of bars without reading. */}
                                 <td>
-                                    {r.confidence
-                                        ? (
-                                            <div className="tprm-conf">
-                                                <div className="tprm-conf-track">
-                                                    <div
-                                                        className="tprm-conf-fill"
-                                                        style={{
-                                                            width: r.confidence + "%",
-                                                            background: Number(r.confidence) >= 90
-                                                                ? "var(--tprm-green)"
-                                                                : "var(--tprm-amber)",
-                                                        }}
-                                                    />
+                                    {!r.sector_code
+                                        ? <span className="tprm-chip red">NO MATCH</span>
+                                        : r.confidence
+                                            ? (
+                                                <div className="tprm-conf">
+                                                    <div className="tprm-conf-track">
+                                                        <div
+                                                            className="tprm-conf-fill"
+                                                            style={{
+                                                                width: r.confidence + "%",
+                                                                background: Number(r.confidence) >= 90
+                                                                    ? "var(--tprm-green)"
+                                                                    : "var(--tprm-amber)",
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <span className="mono">{r.confidence}%</span>
                                                 </div>
-                                                <span className="mono">{r.confidence}%</span>
-                                            </div>
-                                        )
-                                        : <span className="tprm-chip grey">manual</span>}
+                                            )
+                                            : <span className="tprm-chip grey">manual</span>}
+                                </td>
+                                {/* Confirmed is a state, not an action, so it stops
+                                    being a button once it has happened. */}
+                                <td>
+                                    {r.sector_confirmed_time
+                                        ? <span className="tprm-chip green">CONFIRMED</span>
+                                        : (
+                                            <button
+                                                className="tprm-btn sm primary"
+                                                disabled={!r.sector_code}
+                                                title={r.sector_code ? undefined
+                                                    : "Choose an instrument first"}
+                                                onClick={() => confirmOne(r.third_party_id)}
+                                            >
+                                                Confirm
+                                            </button>
+                                        )}
                                 </td>
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={6} className="tprm-empty">
+                            <tr><td colSpan={7} className="tprm-empty">
                                 No suppliers yet. The register is filled from the client's own
                                 supplier list.
                                 <div style={{ marginTop: 12, display: "flex", gap: 8,
@@ -543,9 +685,33 @@ function StepClassify({ tenantId, onChanged, goto }) {
                     </tbody>
                 </table>
             </div>
-            <div className="tprm-note" style={{ marginTop: 18 }}>
-                Keyword rules run across the supplier name, the service line and the client's own
-                spend category. Anything below 90 per cent is highlighted for a human to confirm.
+
+            <div className="tprm-cls-explain">
+                <div className="tprm-card">
+                    <div className="tprm-lab">How the suggestion is produced</div>
+                    <p className="tprm-cls-prose">
+                        Keyword rules run across the supplier name, the service line and the client's
+                        own spend category, each mapping to one of the instruments in the library.
+                        The rules live in a table, so a new one is added without a deployment.
+                    </p>
+                    <p className="tprm-cls-prose">
+                        Confidence is the strength of the match. Anything under 90 is surfaced for a
+                        human, and anything with no match blocks progress until a category is chosen.
+                    </p>
+                </div>
+                {ruleGroups.length > 0 && (
+                    <div className="tprm-card tprm-cls-rules">
+                        <div className="tprm-lab">Example rules in force</div>
+                        {ruleGroups.slice(0, 5).map(g => (
+                            <div className="tprm-cls-rule" key={g.code}>
+                                <div className="tprm-cls-rulename">{g.name}</div>
+                                <div className="mono tprm-cls-rulekw">
+                                    {g.keywords.slice(0, 5).join("  |  ")}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
         </>
     );

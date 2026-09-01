@@ -35,12 +35,35 @@ router.get("/sectors", async (_req, res) => {
     }
 });
 
+/* Each standard with the number of published instruments that map to it, and
+   how many instruments there are in total - a standard nothing maps to is a
+   claim the question bank does not actually support, and that has to be
+   visible rather than inferred.
+
+   A mapping is recorded in two places: instrument_standard, declared for the
+   whole instrument, and question.standards_mapping, written per question while
+   authoring. Counting only the first under-reports badly, because in practice
+   the mapping is made where the question is written. */
 router.get("/standards", async (_req, res) => {
     try {
+        const [[tot]] = await db.query(
+            `SELECT COUNT(*) AS n FROM sector WHERE active = 1`);
         const [rows] = await db.query(
-            `SELECT standard_code, title, family, scope_note FROM standard
-              WHERE active = 1 ORDER BY family, standard_code`);
-        res.json(rows);
+            `SELECT s.standard_code, s.title, s.family, s.scope_note,
+                    (SELECT COUNT(DISTINCT iv.sector_code)
+                       FROM instrument_version iv
+                      WHERE iv.status = 'published'
+                        AND (EXISTS (SELECT 1 FROM instrument_standard ist
+                                      WHERE ist.instrument_version_id = iv.instrument_version_id
+                                        AND ist.standard_code = s.standard_code)
+                          OR EXISTS (SELECT 1 FROM question q
+                                      WHERE q.instrument_version_id = iv.instrument_version_id
+                                        AND q.standards_mapping LIKE CONCAT(s.standard_code, '%')))
+                    ) AS instruments
+               FROM standard s
+              WHERE s.active = 1
+              ORDER BY s.family, s.standard_code`);
+        res.json({ total: Number(tot.n), standards: rows });
     } catch (e) {
         res.status(500).json({ error: "Database error" });
     }

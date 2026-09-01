@@ -11,7 +11,7 @@ const express = require("express");
 const multer = require("multer");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds } = require('./utils/tprm_audit');
 const excel = require('./utils/tprm_excel');
 const classify = require('./utils/tprm_classify');
 const storage = require('./utils/tprm_storage');
@@ -313,14 +313,28 @@ router.get("/:tenantId/classification", requirePerm('vendor.manage'), async (req
 
         const [rows] = await db.query(
             `SELECT tp.third_party_id, tp.ref_code, tp.third_party_name, tp.service_desc,
-                    tp.sector_code, s.sector_name, ir.spend_category, ir.confidence, ir.suggested_sector
+                    tp.sector_code, tp.sector_confirmed_by, tp.sector_confirmed_time,
+                    s.sector_name, ir.spend_category, ir.confidence, ir.suggested_sector
                FROM third_party tp
                LEFT JOIN sector s ON s.sector_code = tp.sector_code
                LEFT JOIN intake_row ir ON ir.third_party_id = tp.third_party_id
               WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL
-              ORDER BY ir.confidence IS NULL DESC, ir.confidence ASC, tp.third_party_name`,
+              ORDER BY tp.sector_confirmed_time IS NOT NULL,
+                       ir.confidence IS NULL DESC, ir.confidence ASC, tp.third_party_name`,
             [req.tenantId]);
-        res.json(rows);
+
+        // The four numbers the review opens on. Counted here rather than in the
+        // browser so they describe the register, not the page of it on screen.
+        const n = (f) => rows.filter(f).length;
+        res.json({
+            rows,
+            summary: {
+                high: n(r => Number(r.confidence) >= 90),
+                low: n(r => Number(r.confidence) > 0 && Number(r.confidence) < 90),
+                none: n(r => !r.sector_code),
+                awaiting: n(r => !r.sector_confirmed_time),
+            },
+        });
     } catch (e) {
         logError("classification", e, req);
         res.status(500).json({ error: "Database error" });
@@ -350,9 +364,15 @@ router.put("/third-parties/:id/sector", requirePerm('vendor.manage'), async (req
             });
         }
 
+        // Choosing the instrument by hand IS the confirmation - a person has
+        // just made the call, and asking them to then confirm their own answer
+        // would be asking twice.
         await db.query(
-            `UPDATE third_party SET sector_code=?, edited_by=?, edited_time=NOW(3) WHERE third_party_id=?`,
-            [sectorCode, req.emp_id, tp.third_party_id]);
+            `UPDATE third_party
+                SET sector_code=?, sector_confirmed_by=?, sector_confirmed_time=NOW(3),
+                    edited_by=?, edited_time=NOW(3)
+              WHERE third_party_id=?`,
+            [sectorCode, req.emp_id, req.emp_id, tp.third_party_id]);
         await db.query(
             `UPDATE intake_row SET confirmed_sector=? WHERE third_party_id=?`, [sectorCode, tp.third_party_id]);
 
@@ -368,6 +388,72 @@ router.put("/third-parties/:id/sector", requirePerm('vendor.manage'), async (req
 });
 
 /* --------------------------------------------------------- 5. triage */
+/* Accepting the rule's answer, unchanged. Separate from reclassifying because
+   the two mean different things on the record: one says a person picked this
+   instrument, the other says a person read what the rule picked and agreed. */
+router.post("/third-parties/:id/confirm-sector", requirePerm('vendor.manage'), async (req, res) => {
+    try {
+        const [[tp]] = await db.query(
+            `SELECT third_party_id, tenant_id, sector_code FROM third_party WHERE third_party_id=?`,
+            [req.params.id]);
+        if (!tp) return res.status(404).json({ error: "That supplier does not exist" });
+        req.tenantId = Number(tp.tenant_id);
+        if (!requireTenant(req, res)) return;
+
+        // Nothing to agree with. The rules found no match, so a category has to
+        // be chosen before this supplier can move on.
+        if (!tp.sector_code) {
+            return res.status(400).json({
+                error: "NO_INSTRUMENT",
+                message: "This supplier has no suggested instrument. Choose one before confirming.",
+            });
+        }
+
+        await db.query(
+            `UPDATE third_party SET sector_confirmed_by=?, sector_confirmed_time=NOW(3)
+              WHERE third_party_id=?`,
+            [req.emp_id, tp.third_party_id]);
+        await db.query(
+            `UPDATE intake_row SET confirmed_sector=? WHERE third_party_id=?`,
+            [tp.sector_code, tp.third_party_id]);
+
+        await audit(req, {
+            action: 'vendor.classification_confirmed', entity: 'third_party',
+            entityId: tp.third_party_id, after: { sector: tp.sector_code }, tenantId: tp.tenant_id,
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("confirm-sector", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+/* Confirm everything the rules did manage to classify, in one go. The ones with
+   no suggestion are deliberately left behind - they are the whole reason this
+   screen exists, and sweeping them up silently would defeat it. */
+router.post("/:tenantId/classification/accept-all", requirePerm('vendor.manage'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [r] = await db.query(
+            `UPDATE third_party
+                SET sector_confirmed_by=?, sector_confirmed_time=NOW(3)
+              WHERE tenant_id=? AND deleted_time IS NULL
+                AND sector_code IS NOT NULL AND sector_confirmed_time IS NULL`,
+            [req.emp_id, req.tenantId]);
+
+        await audit(req, {
+            action: 'vendor.classification_accepted_all', entity: 'tenant',
+            entityId: req.tenantId, after: { confirmed: r.affectedRows }, tenantId: req.tenantId,
+        });
+        res.json({ success: true, confirmed: r.affectedRows });
+    } catch (e) {
+        logError("accept-all", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
 router.get("/:tenantId/triage", requirePerm('vendor.manage'), async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
@@ -449,8 +535,26 @@ router.get("/:tenantId/funnel", async (req, res) => {
                     ON a.assessment_id = d.assessment_id
                 WHERE a.tenant_id=? AND d.state IN ('zipped','emailed','reminded','returned','imported')) AS issued,
               (SELECT COUNT(*) FROM assessment WHERE tenant_id=?
-                 AND state IN ('approved','issued','closed')) AS assessed`,
-            [t, t, t, t, t, t]);
+                 AND state IN ('approved','issued','closed')) AS assessed,
+
+              -- The four backlogs. The funnel says where the population is;
+              -- these say which stage is actually starving, so the cards under
+              -- it can send someone at the work rather than at a screen.
+              (SELECT COUNT(*) FROM third_party WHERE tenant_id=? AND deleted_time IS NULL
+                 AND (sector_code IS NULL OR sector_code = 'GENERIC')) AS awaiting_classify,
+              (SELECT COUNT(*) FROM third_party tp
+                WHERE tp.tenant_id=? AND tp.deleted_time IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM triage_decision td
+                                   WHERE td.third_party_id = tp.third_party_id)) AS awaiting_triage,
+              (SELECT COUNT(*) FROM assessment a
+                WHERE a.tenant_id=? AND a.tier IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM distribution d
+                                   WHERE d.assessment_id = a.assessment_id
+                                     AND d.state <> 'ready')) AS awaiting_issue,
+              (SELECT COUNT(*) FROM distribution d JOIN assessment a
+                    ON a.assessment_id = d.assessment_id
+                WHERE a.tenant_id=? AND d.state = 'returned') AS awaiting_import`,
+            [t, t, t, t, t, t, t, t, t, t]);
         res.json(r);
     } catch (e) {
         logError("funnel", e, req);
@@ -459,6 +563,44 @@ router.get("/:tenantId/funnel", async (req, res) => {
 });
 
 /* ------------------------------------------------ 7. the register itself */
+
+/* The register across every client the caller holds a role on. Same shape as
+   the per-client route below, so the page can render either without caring
+   which one it asked for. Scoped by grants rather than by the client selected
+   in the top bar: a third party you are responsible for should not disappear
+   because you were last looking at a different engagement. */
+router.get("/third-parties", async (req, res) => {
+    try {
+        const ids = memberTenantIds(req);
+        if (!ids.length) return res.json([]);
+
+        const [rows] = await db.query(
+            `SELECT tp.third_party_id, tp.tenant_id, tp.ref_code, tp.third_party_name,
+                    tp.sector_code, s.sector_name, td.in_scope, td.reason AS triage_reason,
+                    t.tenant_name,
+                    a.assessment_id, a.state AS assessment_state, a.tier, a.inherent_score,
+                    a.effectiveness, a.residual_score, a.residual_band,
+                    (SELECT COUNT(*) FROM finding f
+                      WHERE f.assessment_id = a.assessment_id
+                        AND f.status IN ('open','in_progress')) AS open_findings
+               FROM third_party tp
+               JOIN tenant t ON t.tenant_id = tp.tenant_id
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+               LEFT JOIN triage_decision td ON td.third_party_id = tp.third_party_id
+               LEFT JOIN assessment a ON a.assessment_id = (
+                   SELECT assessment_id FROM assessment
+                    WHERE third_party_id = tp.third_party_id ORDER BY assessment_id DESC LIMIT 1)
+              WHERE tp.tenant_id IN (${ids.map(() => '?').join(',')})
+                AND tp.deleted_time IS NULL
+              ORDER BY t.tenant_name, tp.third_party_name`,
+            ids);
+        res.json(rows);
+    } catch (e) {
+        logError("third-parties all", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
 router.get("/:tenantId/third-parties", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
