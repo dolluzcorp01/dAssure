@@ -4,6 +4,7 @@ import { apiJson, apiPost } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Clients.css";
+import TPRMSelect from "./TPRM_Select";
 
 function TPRMClients() {
     const { hasPerm, refetch, setupMode } = useAccess();
@@ -186,15 +187,14 @@ function TPRMClients() {
                             </div>
                             <div className="tprm-field">
                                 <label>Primary sector</label>
-                                <select
-                                    className="tprm-select"
+                                <TPRMSelect
                                     value={form.sector}
-                                    onChange={e => setForm({ ...form, sector: e.target.value })}
-                                >
-                                    {sectors.map(s => (
-                                        <option key={s.sector_code} value={s.sector_code}>{s.sector_name}</option>
-                                    ))}
-                                </select>
+                                    onChange={v => setForm({ ...form, sector: v })}
+                                    ariaLabel="Primary sector"
+                                    options={sectors.map(s => ({
+                                        value: s.sector_code, label: s.sector_name,
+                                    }))}
+                                />
                                 <div className="tprm-hint">
                                     The client's own industry. This drives the regulatory overlay.
                                     Each supplier still gets a questionnaire matched to its own sector.

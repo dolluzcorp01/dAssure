@@ -1,0 +1,107 @@
+/* Manage instruments. One row per instrument, everything on the line: what it
+   is, whether anything uses it, and the actions that are legal because of that. */
+
+.tprm-im-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(14, 26, 43, .55);
+    z-index: 410;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.tprm-im {
+    background: var(--tprm-card);
+    border-radius: 14px;
+    width: 980px;
+    max-width: 100%;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 26px 70px rgba(0, 0, 0, .34);
+}
+
+.tprm-im-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px 26px;
+    border-bottom: 1px solid var(--tprm-line);
+}
+
+.tprm-im-title { font-size: 19px; font-weight: 700; }
+.tprm-im-sub { font-size: 13.5px; color: var(--tprm-muted); margin-top: 4px; max-width: 70ch; }
+
+.tprm-im-x {
+    margin-left: auto;
+    background: none;
+    border: none;
+    font-size: 17px;
+    color: var(--tprm-faint);
+    cursor: pointer;
+    padding: 4px;
+}
+
+.tprm-im-x:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 2px; }
+
+.tprm-im-body { padding: 20px 26px; overflow-y: auto; flex: 1; }
+
+.tprm-im-add {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--tprm-line);
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.tprm-im-add .tprm-input { flex: 1; min-width: 160px; }
+
+.tprm-im-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--tprm-line-soft);
+    font-size: 13.5px;
+}
+
+.tprm-im-row .tprm-input { flex: 1; }
+
+.tprm-im-code {
+    flex: 0 0 92px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--tprm-muted);
+}
+
+.tprm-im-name { flex: 1; font-weight: 600; min-width: 0; }
+.tprm-im-group { flex: 0 0 170px; font-size: 12.5px; color: var(--tprm-muted); }
+
+/* The usage count is the reason Delete is or is not available, so it sits
+   next to the button rather than in a tooltip. */
+.tprm-im-use {
+    flex: 0 0 180px;
+    font-size: 12px;
+    color: var(--tprm-faint);
+    text-align: right;
+}
+
+.tprm-iconbtn.danger { color: var(--tprm-red); }
+.tprm-iconbtn.danger:hover:not(:disabled) { border-color: var(--tprm-red); color: var(--tprm-red); }
+
+.tprm-im-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 26px;
+    border-top: 1px solid var(--tprm-line);
+    background: var(--tprm-wash);
+    border-radius: 0 0 14px 14px;
+}
+
+@media (max-width: 900px) {
+    .tprm-im-group, .tprm-im-use { display: none; }
+}

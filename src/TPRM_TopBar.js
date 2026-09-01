@@ -10,6 +10,7 @@ import { NAV_ITEMS } from "./left_navbar";
 import { useAccess } from "./utils/AccessContext";
 import { apiFetch } from "./utils/api";
 import "./TPRM_TopBar.css";
+import TPRMSelect from "./TPRM_Select";
 
 function TPRMTopBar() {
     const { tenant, tenants, setTenant } = useAccess();
@@ -36,19 +37,16 @@ function TPRMTopBar() {
             <div className="tprm-topbar-spacer" />
 
             <label className="tprm-topbar-label" htmlFor="tprm-topbar-client">Client</label>
-            <select
+            <TPRMSelect
                 id="tprm-topbar-client"
                 className="tprm-topbar-select"
                 value={tenant ? tenant.tenant_id : ""}
-                onChange={(e) => setTenant(e.target.value)}
+                onChange={(v) => setTenant(v)}
                 disabled={tenants.length === 0}
-            >
-                {tenants.length === 0
-                    ? <option value="">No client assigned</option>
-                    : tenants.map(t => (
-                        <option key={t.tenant_id} value={t.tenant_id}>{t.tenant_name}</option>
-                    ))}
-            </select>
+                placeholder={tenants.length === 0 ? "No client assigned" : "— choose a client —"}
+                ariaLabel="Client"
+                options={tenants.map(t => ({ value: t.tenant_id, label: t.tenant_name }))}
+            />
 
             <button className="tprm-btn sm" onClick={() => navigate("/My_Account")}>
                 My Account

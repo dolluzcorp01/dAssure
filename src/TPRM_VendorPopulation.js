@@ -5,6 +5,7 @@ import { tprmAlert } from "./utils/tprmAlert";
 import { FaRegEnvelopeOpen, FaPaperPlane } from "react-icons/fa";
 import TPRMMailPreview from "./TPRM_MailPreview";
 import "./TPRM_VendorPopulation.css";
+import TPRMSelect from "./TPRM_Select";
 
 // The pipeline, left to right. Each step is a tab rather than a locked wizard,
 // because real engagements loop back: a supplier list arrives in three parts
@@ -488,17 +489,14 @@ function StepClassify({ tenantId, onChanged, goto }) {
                                         : <span style={{ color: "var(--tprm-faint)" }}>-</span>}
                                 </td>
                                 <td>
-                                    <select
-                                        className="tprm-select"
+                                    <TPRMSelect
                                         value={r.sector_code}
-                                        onChange={e => change(r.third_party_id, e.target.value)}
-                                    >
-                                        {sectors.map(s => (
-                                            <option key={s.sector_code} value={s.sector_code}>
-                                                {s.sector_name}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        onChange={v => change(r.third_party_id, v)}
+                                        ariaLabel={`Instrument for ${r.third_party_name}`}
+                                        options={sectors.map(s => ({
+                                            value: s.sector_code, label: s.sector_name,
+                                        }))}
+                                    />
                                 </td>
                                 {/* A bar reads as a quantity; a pill reads as a
                                     label. Confidence is a quantity, and the eye

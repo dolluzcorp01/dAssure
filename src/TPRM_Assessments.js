@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiJson } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import "./TPRM_Assessments.css";
+import TPRMSelect from "./TPRM_Select";
 
 const STATE_CHIP = {
     draft: "grey", in_progress: "blue", on_hold: "amber",
@@ -41,15 +42,15 @@ function TPRMAssessments() {
                     </div>
                 </div>
                 <div className="tprm-page-actions">
-                    <select
-                        className="tprm-select" style={{ width: 170 }}
-                        value={state} onChange={e => setState(e.target.value)}
-                    >
-                        <option value="all">All states</option>
-                        {Object.entries(STATE_LABEL).map(([k, v]) => (
-                            <option key={k} value={k}>{v}</option>
-                        ))}
-                    </select>
+                    <TPRMSelect
+                        style={{ width: 190 }}
+                        value={state} onChange={setState}
+                        ariaLabel="Filter by state"
+                        options={[
+                            { value: "all", label: "All states" },
+                            ...Object.entries(STATE_LABEL).map(([k, v]) => ({ value: k, label: v })),
+                        ]}
+                    />
                     <button
                         className={"tprm-btn" + (mine ? " navy" : "")}
                         onClick={() => setMine(m => !m)}

@@ -14,22 +14,43 @@
 
 .tprm-meth-note { font-size: 11.5px; color: var(--tprm-faint); margin-top: 2px; line-height: 1.45; }
 
-.tprm-meth-input {
-    width: 88px;
-    flex: 0 0 88px;
-    text-align: right;
-    font-family: Consolas, monospace;
-}
-
-.tprm-meth-total {
-    font-size: 12px;
-    font-weight: 700;
-    padding: 7px 11px;
-    border-radius: 7px;
-    margin-bottom: 14px;
-}
-
-.tprm-meth-total.ok { background: #E6F4EE; color: var(--tprm-green); }
-.tprm-meth-total.bad { background: #FBECEA; color: var(--tprm-red); }
-
 .tprm-meth-formula { font-size: 13px; line-height: 1.9; color: var(--tprm-body); }
+
+/* ---------------------------------------------------------- the dials */
+
+/* Section title and its state on one line - the balance chip is a property
+   of the group it sits above, not a banner interrupting it. */
+.tprm-meth-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.tprm-meth-head .tprm-card-title { margin: 0; }
+.tprm-meth-head .tprm-chip { margin-left: auto; }
+
+.tprm-meth-label { flex: 1; min-width: 0; }
+
+.tprm-meth-slider {
+    flex: 0 0 150px;
+    width: 150px;
+    accent-color: var(--tprm-gold);
+    cursor: pointer;
+}
+
+.tprm-meth-slider:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 3px; }
+
+/* Fixed width and tabular figures: the column must not shift as a value
+   goes from 0.1 to 0.28 while a slider is being dragged. */
+.tprm-meth-value {
+    flex: 0 0 46px;
+    text-align: right;
+    font-weight: 700;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1100px) {
+    .tprm-meth-slider { flex-basis: 110px; width: 110px; }
+}

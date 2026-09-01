@@ -5,6 +5,7 @@ import { FaFileExcel, FaFilePdf } from "react-icons/fa";
 import { exportThemedExcel, exportThemedPdf } from "./utils/tprmExport";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Findings.css";
+import TPRMSelect from "./TPRM_Select";
 
 const SEV_CLASS = { Critical: "red", High: "amber", Medium: "blue", Low: "grey" };
 
@@ -116,28 +117,32 @@ function TPRMFindings() {
                     >
                         <FaFilePdf style={{ marginRight: 6 }} />PDF
                     </button>
-                    <select
-                        className="tprm-select" style={{ width: 180 }}
-                        value={status} onChange={e => setStatus(e.target.value)}
-                    >
-                        <option value="">Open and in progress</option>
-                        <option value="all">All statuses</option>
-                        <option value="open">Open</option>
-                        <option value="in_progress">In progress</option>
-                        <option value="evidence_under_review">Evidence under review</option>
-                        <option value="closed">Closed</option>
-                        <option value="accepted">Risk accepted</option>
-                    </select>
-                    <select
-                        className="tprm-select" style={{ width: 140 }}
-                        value={severity} onChange={e => setSeverity(e.target.value)}
-                    >
-                        <option value="all">All severities</option>
-                        <option value="Critical">Critical</option>
-                        <option value="High">High</option>
-                        <option value="Medium">Medium</option>
-                        <option value="Low">Low</option>
-                    </select>
+                    <TPRMSelect
+                        style={{ width: 210 }}
+                        value={status} onChange={setStatus}
+                        ariaLabel="Filter by status"
+                        options={[
+                            { value: "", label: "Open and in progress" },
+                            { value: "all", label: "All statuses" },
+                            { value: "open", label: "Open" },
+                            { value: "in_progress", label: "In progress" },
+                            { value: "evidence_under_review", label: "Evidence under review" },
+                            { value: "closed", label: "Closed" },
+                            { value: "accepted", label: "Risk accepted" },
+                        ]}
+                    />
+                    <TPRMSelect
+                        style={{ width: 160 }}
+                        value={severity} onChange={setSeverity}
+                        ariaLabel="Filter by severity"
+                        options={[
+                            { value: "all", label: "All severities" },
+                            { value: "Critical", label: "Critical" },
+                            { value: "High", label: "High" },
+                            { value: "Medium", label: "Medium" },
+                            { value: "Low", label: "Low" },
+                        ]}
+                    />
                 </div>
             </div>
 

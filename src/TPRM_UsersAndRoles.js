@@ -3,6 +3,7 @@ import { apiJson, apiPost, apiDelete } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_UsersAndRoles.css";
+import TPRMSelect from "./TPRM_Select";
 
 function TPRMUsersAndRoles() {
     const { tenantId, tenant, user } = useAccess();
@@ -171,37 +172,36 @@ function TPRMUsersAndRoles() {
                         <div className="tprm-modal-body">
                             <div className="tprm-field">
                                 <label>Employee</label>
-                                <select
-                                    className="tprm-select"
-                                    autoFocus
+                                {/* Every employee in dAdmin, so this is the list
+                                     that most needs the filter. */}
+                                <TPRMSelect
                                     value={form.empId}
-                                    onChange={e => setForm({ ...form, empId: e.target.value })}
-                                >
-                                    <option value="">Choose someone...</option>
-                                    {grantable.map(e2 => (
-                                        <option key={e2.emp_id} value={e2.emp_id}>
-                                            {e2.emp_name} ({e2.emp_mail_id})
-                                        </option>
-                                    ))}
-                                </select>
+                                    onChange={v => setForm({ ...form, empId: v })}
+                                    placeholder="Choose someone..."
+                                    ariaLabel="Employee"
+                                    options={grantable.map(e2 => ({
+                                        value: e2.emp_id,
+                                        label: e2.emp_name,
+                                        hint: e2.emp_mail_id,
+                                    }))}
+                                />
                                 <div className="tprm-hint">
                                     Only employees who do not already have a role on this client are listed.
                                 </div>
                             </div>
                             <div className="tprm-field">
                                 <label>Role</label>
-                                <select
-                                    className="tprm-select"
+                                <TPRMSelect
                                     value={form.roleId}
-                                    onChange={e => setForm({ ...form, roleId: e.target.value })}
-                                >
-                                    <option value="">Choose a role...</option>
-                                    {grantableRoles.map(r => (
-                                        <option key={r.role_id} value={r.role_id}>
-                                            {r.role_name} (level {r.rank_value})
-                                        </option>
-                                    ))}
-                                </select>
+                                    onChange={v => setForm({ ...form, roleId: v })}
+                                    placeholder="Choose a role..."
+                                    ariaLabel="Role"
+                                    options={grantableRoles.map(r => ({
+                                        value: r.role_id,
+                                        label: r.role_name,
+                                        hint: `level ${r.rank_value}`,
+                                    }))}
+                                />
                                 <div className="tprm-hint">
                                     Only roles at or below your own level appear here.
                                 </div>

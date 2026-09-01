@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { apiJson } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import "./TPRM_AuditTrail.css";
+import TPRMSelect from "./TPRM_Select";
 
 function TPRMAuditTrail() {
     const { tenantId, tenant } = useAccess();
@@ -33,20 +34,22 @@ function TPRMAuditTrail() {
                     </div>
                 </div>
                 <div className="tprm-page-actions">
-                    <select
-                        className="tprm-select" style={{ width: 210 }}
-                        value={action} onChange={e => setAction(e.target.value)}
-                    >
-                        <option value="">Everything</option>
-                        <option value="assessment">Assessment actions</option>
-                        <option value="response">Response changes</option>
-                        <option value="evidence">Evidence actions</option>
-                        <option value="finding">Finding actions</option>
-                        <option value="report">Report actions</option>
-                        <option value="role">Role grants</option>
-                        <option value="intake">Intake actions</option>
-                        <option value="methodology">Methodology changes</option>
-                    </select>
+                    <TPRMSelect
+                        style={{ width: 230 }}
+                        value={action} onChange={setAction}
+                        ariaLabel="Filter by action"
+                        options={[
+                            { value: "", label: "Everything" },
+                            { value: "assessment", label: "Assessment actions" },
+                            { value: "response", label: "Response changes" },
+                            { value: "evidence", label: "Evidence actions" },
+                            { value: "finding", label: "Finding actions" },
+                            { value: "report", label: "Report actions" },
+                            { value: "role", label: "Role grants" },
+                            { value: "intake", label: "Intake actions" },
+                            { value: "methodology", label: "Methodology changes" },
+                        ]}
+                    />
                 </div>
             </div>
 

@@ -56,6 +56,17 @@ router.get("/domains", async (_req, res) => {
     }
 });
 
+router.get("/dimensions", async (_req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT dimension_code, dimension_name, default_weight, note
+               FROM tiering_dimension ORDER BY sort_order`);
+        res.json(rows);
+    } catch (e) {
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
 /* ------------------------------------------ one sector's question bank */
 router.get("/instruments/:sectorCode", async (req, res) => {
     try {
@@ -83,6 +94,7 @@ router.get("/instruments/:sectorCode", async (req, res) => {
             `SELECT q.question_id, q.q_type, q.q_ref, q.is_core, q.dimension_code, q.domain_code,
                     q.q_text, q.score_1_label, q.score_2_label, q.score_3_label,
                     q.evidence_required, q.standards_mapping, q.tier_applies, q.sort_order,
+                    q.rationale,
                     cd.domain_name, td.dimension_name
                FROM question q
                LEFT JOIN control_domain cd ON cd.domain_code = q.domain_code
@@ -219,39 +231,435 @@ router.post("/instruments/version/:id/publish", requirePerm('instrument.publish'
 });
 
 /* -------------------------------------------- edit a draft question only */
-router.put("/questions/:id", requirePerm('instrument.author'), async (req, res) => {
+/* ============================================== authoring a draft ======
+   Everything below edits questions, and every one of them refuses unless the
+   version is still a draft. That rule is the product's promise: a published
+   instrument is frozen, so a report issued last month cannot change meaning
+   underneath the client who received it.
+
+   The check is repeated per route rather than hoisted into middleware because
+   two of them are reached by question id and two by version id, and a guard
+   that has to work out which is a guard people eventually get wrong. */
+
+/** Loads a question with the status of the version it belongs to. */
+async function draftQuestion(id) {
+    const [[q]] = await db.query(
+        `SELECT q.*, iv.status, iv.instrument_version_id AS ivid, iv.sector_code
+           FROM question q
+           JOIN instrument_version iv ON iv.instrument_version_id = q.instrument_version_id
+          WHERE q.question_id = ?`, [id]);
+    return q || null;
+}
+
+const FROZEN = {
+    error: "VERSION_FROZEN",
+    message: "Published versions are immutable. Create a draft version to make changes.",
+};
+
+/** A tiering question is scored 1-3 against a dimension; a control question
+ *  takes a position against a domain. The database enforces this with a CHECK
+ *  constraint, so rejecting it here is only about the error the author reads. */
+function shapeError(body) {
+    if (body.qType === 'tiering' && !body.dimensionCode) {
+        return "A tiering question needs a dimension - it is scored against one.";
+    }
+    if (body.qType === 'control' && !body.domainCode) {
+        return "A control question needs a control area.";
+    }
+    if (!['tiering', 'control'].includes(body.qType)) {
+        return "A question is either tiering or control.";
+    }
+    if (!String(body.qText || "").trim()) return "The question needs wording.";
+    if (!String(body.qRef || "").trim()) return "The question needs a reference.";
+    return null;
+}
+
+// POST a new question onto a draft.
+router.post("/instruments/version/:id/questions", requirePerm('instrument.author'), async (req, res) => {
     try {
-        const [[q]] = await db.query(
-            `SELECT q.*, iv.status FROM question q
-               JOIN instrument_version iv ON iv.instrument_version_id = q.instrument_version_id
-              WHERE q.question_id = ?`, [req.params.id]);
-        if (!q) return res.status(404).json({ error: "That question does not exist" });
-        if (q.status !== 'draft') {
-            return res.status(400).json({
-                error: "VERSION_FROZEN",
-                message: "Published versions are immutable. Create a draft version to make changes.",
+        const [[iv]] = await db.query(
+            `SELECT instrument_version_id, status, sector_code FROM instrument_version
+              WHERE instrument_version_id = ?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+        if (iv.status !== 'draft') return res.status(400).json(FROZEN);
+
+        const bad = shapeError(req.body);
+        if (bad) return res.status(400).json({ error: "BAD_SHAPE", message: bad });
+
+        const qRef = String(req.body.qRef).trim().toUpperCase();
+        const [[dupe]] = await db.query(
+            `SELECT question_id FROM question WHERE instrument_version_id=? AND q_ref=?`,
+            [iv.instrument_version_id, qRef]);
+        if (dupe) {
+            return res.status(409).json({
+                error: "REF_TAKEN",
+                message: `${qRef} is already used in this version. References identify a question in returned workbooks, so they have to be unique.`,
             });
         }
 
-        const { qText, evidenceRequired, standardsMapping, tierApplies } = req.body;
+        // New questions land at the end of their own type's list.
+        const [[last]] = await db.query(
+            `SELECT COALESCE(MAX(sort_order), 0) AS n FROM question
+              WHERE instrument_version_id=? AND q_type=?`,
+            [iv.instrument_version_id, req.body.qType]);
+
+        const [ins] = await db.query(
+            `INSERT INTO question
+               (instrument_version_id, q_type, q_ref, dimension_code, domain_code, q_text,
+                score_1_label, score_2_label, score_3_label, rationale,
+                evidence_required, standards_mapping, tier_applies, sort_order)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [
+                iv.instrument_version_id, req.body.qType, qRef,
+                req.body.qType === 'tiering' ? req.body.dimensionCode : null,
+                req.body.qType === 'control' ? req.body.domainCode : null,
+                String(req.body.qText).trim(),
+                req.body.score1 || null, req.body.score2 || null, req.body.score3 || null,
+                req.body.rationale || null,
+                req.body.evidenceRequired || null, req.body.standardsMapping || null,
+                Number(req.body.tierApplies) || 3,
+                Number(last.n) + 10,
+            ]);
+
+        await audit(req, {
+            action: 'question.created', entity: 'question', entityId: ins.insertId,
+            after: { version: iv.instrument_version_id, q_ref: qRef, q_type: req.body.qType },
+        });
+        res.status(201).json({ success: true, question_id: ins.insertId });
+    } catch (e) {
+        logError("question POST", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+// PUT an edit onto a draft question. Every authored field, not just four.
+router.put("/questions/:id", requirePerm('instrument.author'), async (req, res) => {
+    try {
+        const q = await draftQuestion(req.params.id);
+        if (!q) return res.status(404).json({ error: "That question does not exist" });
+        if (q.status !== 'draft') return res.status(400).json(FROZEN);
+
+        const body = { qType: q.q_type, ...req.body };
+        const bad = shapeError({
+            qType: body.qType,
+            dimensionCode: body.dimensionCode !== undefined ? body.dimensionCode : q.dimension_code,
+            domainCode: body.domainCode !== undefined ? body.domainCode : q.domain_code,
+            qText: body.qText !== undefined ? body.qText : q.q_text,
+            qRef: body.qRef !== undefined ? body.qRef : q.q_ref,
+        });
+        if (bad) return res.status(400).json({ error: "BAD_SHAPE", message: bad });
+
+        const qRef = req.body.qRef ? String(req.body.qRef).trim().toUpperCase() : q.q_ref;
+        if (qRef !== q.q_ref) {
+            const [[dupe]] = await db.query(
+                `SELECT question_id FROM question
+                  WHERE instrument_version_id=? AND q_ref=? AND question_id<>?`,
+                [q.ivid, qRef, q.question_id]);
+            if (dupe) return res.status(409).json({ error: "REF_TAKEN", message: `${qRef} is already used in this version.` });
+        }
+
+        // COALESCE keeps an omitted field at its current value, so a caller can
+        // send one changed field without having to echo the whole question back.
         await db.query(
             `UPDATE question SET
+               q_ref             = ?,
+               dimension_code    = ?,
+               domain_code       = ?,
                q_text            = COALESCE(?, q_text),
+               score_1_label     = COALESCE(?, score_1_label),
+               score_2_label     = COALESCE(?, score_2_label),
+               score_3_label     = COALESCE(?, score_3_label),
+               rationale         = COALESCE(?, rationale),
                evidence_required = COALESCE(?, evidence_required),
                standards_mapping = COALESCE(?, standards_mapping),
                tier_applies      = COALESCE(?, tier_applies)
              WHERE question_id = ?`,
-            [qText || null, evidenceRequired || null, standardsMapping || null,
-             tierApplies || null, req.params.id]
-        );
+            [
+                qRef,
+                q.q_type === 'tiering'
+                    ? (req.body.dimensionCode || q.dimension_code) : null,
+                q.q_type === 'control'
+                    ? (req.body.domainCode || q.domain_code) : null,
+                req.body.qText || null,
+                req.body.score1 || null, req.body.score2 || null, req.body.score3 || null,
+                req.body.rationale || null,
+                req.body.evidenceRequired || null, req.body.standardsMapping || null,
+                req.body.tierApplies || null,
+                req.params.id,
+            ]);
+
         await audit(req, {
             action: 'question.updated', entity: 'question', entityId: q.question_id,
-            before: { q_text: q.q_text, tier_applies: q.tier_applies },
-            after: { qText, tierApplies },
+            before: { q_ref: q.q_ref, q_text: q.q_text, tier_applies: q.tier_applies },
+            after: { q_ref: qRef, q_text: req.body.qText, tier_applies: req.body.tierApplies },
         });
         res.json({ success: true });
     } catch (e) {
         logError("question PUT", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+// DELETE a question from a draft.
+router.delete("/questions/:id", requirePerm('instrument.author'), async (req, res) => {
+    try {
+        const q = await draftQuestion(req.params.id);
+        if (!q) return res.status(404).json({ error: "That question does not exist" });
+        if (q.status !== 'draft') return res.status(400).json(FROZEN);
+
+        await db.query(`DELETE FROM question WHERE question_id=?`, [req.params.id]);
+        await audit(req, {
+            action: 'question.deleted', entity: 'question', entityId: q.question_id,
+            before: { q_ref: q.q_ref, q_text: q.q_text, version: q.ivid },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("question DELETE", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+// PUT the change note. Editable for exactly as long as the version is a draft.
+//
+// It was write-once at creation, which had it backwards: every question in a
+// draft can be added, edited, reordered and deleted, but the sentence saying
+// why the draft exists was frozen from the moment it was typed. A typo in it
+// meant discarding the draft and starting again.
+//
+// It freezes on publish with everything else, because by then it is the change
+// note attached to a version somebody has been assessed against.
+router.put("/instruments/version/:id", requirePerm('instrument.author'), async (req, res) => {
+    try {
+        const [[iv]] = await db.query(
+            `SELECT instrument_version_id, status, change_note, sector_code, version_no
+               FROM instrument_version WHERE instrument_version_id=?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+        if (iv.status !== 'draft') {
+            return res.status(400).json({
+                error: "VERSION_FROZEN",
+                message: "Published versions are immutable, change note included.",
+            });
+        }
+
+        const note = String(req.body.changeNote || "").trim();
+        if (note.length < 5) {
+            return res.status(400).json({
+                error: "NOTE_TOO_SHORT",
+                message: "Say what is changing in this version, in at least 5 characters. It is what a reader sees next to the version months from now.",
+            });
+        }
+
+        await db.query(
+            `UPDATE instrument_version SET change_note=? WHERE instrument_version_id=?`,
+            [note, req.params.id]);
+        await audit(req, {
+            action: 'instrument.note_updated', entity: 'instrument_version',
+            entityId: iv.instrument_version_id,
+            before: { change_note: iv.change_note }, after: { change_note: note },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("version note PUT", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+// PUT a new running order. Takes the ids in the order they should appear.
+router.put("/instruments/version/:id/order", requirePerm('instrument.author'), async (req, res) => {
+    const conn = await db.getConnection();
+    try {
+        const [[iv]] = await conn.query(
+            `SELECT status FROM instrument_version WHERE instrument_version_id=?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+        if (iv.status !== 'draft') return res.status(400).json(FROZEN);
+
+        const ids = Array.isArray(req.body.questionIds) ? req.body.questionIds : [];
+        if (!ids.length) return res.status(400).json({ error: "questionIds required" });
+
+        await conn.beginTransaction();
+        // Spaced by ten so a later single-question move can be written without
+        // renumbering the whole list.
+        for (let i = 0; i < ids.length; i++) {
+            await conn.query(
+                `UPDATE question SET sort_order=? WHERE question_id=? AND instrument_version_id=?`,
+                [(i + 1) * 10, ids[i], req.params.id]);
+        }
+        await conn.commit();
+        await audit(req, {
+            action: 'question.reordered', entity: 'instrument_version', entityId: req.params.id,
+            after: { count: ids.length },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        await conn.rollback().catch(() => {});
+        logError("question order", e, req);
+        res.status(500).json({ error: "Database error" });
+    } finally {
+        conn.release();
+    }
+});
+
+// DELETE a draft outright. The 409 on creating a second draft tells the author
+// to "publish or discard it" - this is the discard, which did not exist.
+router.delete("/instruments/version/:id", requirePerm('instrument.author'), async (req, res) => {
+    try {
+        const [[iv]] = await db.query(
+            `SELECT instrument_version_id, sector_code, version_no, status
+               FROM instrument_version WHERE instrument_version_id=?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+        if (iv.status !== 'draft') {
+            return res.status(400).json({
+                error: "NOT_A_DRAFT",
+                message: "Only a draft can be discarded. A published version is kept for the record.",
+            });
+        }
+        // question rows go with it: fk_q_iv is ON DELETE CASCADE.
+        await db.query(`DELETE FROM instrument_version WHERE instrument_version_id=?`, [req.params.id]);
+        await audit(req, {
+            action: 'instrument.draft_discarded', entity: 'instrument_version',
+            entityId: iv.instrument_version_id,
+            before: { sector: iv.sector_code, version: iv.version_no },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("draft DELETE", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+/* ============================================ managing the instruments ==
+   The dropdown itself. A sector is an instrument, so adding one is adding a
+   questionnaire the product can issue - which is why it sits behind
+   instrument.publish rather than instrument.author.
+
+   Nothing here deletes a sector that is in use. A supplier classified into it,
+   or a version authored against it, means the code is referenced in issued
+   documents; disabling hides it from the pickers without breaking those. */
+
+router.get("/sectors/manage", requirePerm('instrument.author'), async (_req, res) => {
+    try {
+        const [rows] = await db.query(
+            `SELECT s.sector_code, s.sector_name, s.sector_group, s.sort_order, s.active,
+                    (SELECT COUNT(*) FROM instrument_version iv WHERE iv.sector_code = s.sector_code) AS versions,
+                    (SELECT COUNT(*) FROM instrument_version iv
+                      WHERE iv.sector_code = s.sector_code AND iv.status='published') AS published_versions,
+                    (SELECT COUNT(*) FROM third_party tp
+                      WHERE tp.sector_code = s.sector_code AND tp.deleted_time IS NULL) AS third_parties
+               FROM sector s ORDER BY s.sector_group, s.sort_order, s.sector_name`);
+        // in_use drives whether Delete is offered at all, the same way dAdmin's
+        // option manager marks a value "unused".
+        res.json(rows.map(r => ({ ...r, in_use: r.versions > 0 || r.third_parties > 0 })));
+    } catch (e) {
+        logError("sectors/manage", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.post("/sectors", requirePerm('instrument.publish'), async (req, res) => {
+    try {
+        const code = String(req.body.sectorCode || "").trim().toUpperCase();
+        const name = String(req.body.sectorName || "").trim();
+        if (!/^[A-Z0-9]{2,24}$/.test(code)) {
+            return res.status(400).json({
+                error: "BAD_CODE",
+                message: "A code is 2 to 24 characters, letters and digits only. It appears in every document reference.",
+            });
+        }
+        if (!name) return res.status(400).json({ error: "BAD_NAME", message: "The instrument needs a name." });
+
+        const [[dupe]] = await db.query(`SELECT sector_code FROM sector WHERE sector_code=?`, [code]);
+        if (dupe) return res.status(409).json({ error: "CODE_TAKEN", message: `${code} already exists.` });
+
+        const [[last]] = await db.query(
+            `SELECT COALESCE(MAX(sort_order),0) AS n FROM sector WHERE sector_group=?`,
+            [req.body.sectorGroup || 'Other']);
+        await db.query(
+            `INSERT INTO sector (sector_code, sector_name, sector_group, sort_order, active)
+             VALUES (?,?,?,?,1)`,
+            [code, name, req.body.sectorGroup || 'Other', Number(last.n) + 10]);
+
+        await audit(req, { action: 'instrument.created', entity: 'sector', entityId: code, after: { name } });
+        res.status(201).json({ success: true, sector_code: code });
+    } catch (e) {
+        logError("sector POST", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.put("/sectors/:code", requirePerm('instrument.publish'), async (req, res) => {
+    try {
+        const [[sct]] = await db.query(`SELECT * FROM sector WHERE sector_code=?`, [req.params.code]);
+        if (!sct) return res.status(404).json({ error: "That instrument does not exist" });
+
+        const name = req.body.sectorName !== undefined
+            ? String(req.body.sectorName).trim() : sct.sector_name;
+        if (!name) return res.status(400).json({ error: "BAD_NAME", message: "The instrument needs a name." });
+
+        // The code is never editable. It is stamped into issued documents and
+        // into every classified supplier row; renaming it would orphan both.
+        await db.query(
+            `UPDATE sector SET sector_name=?, sector_group=?, sort_order=? WHERE sector_code=?`,
+            [name, req.body.sectorGroup || sct.sector_group,
+             req.body.sortOrder !== undefined ? Number(req.body.sortOrder) : sct.sort_order,
+             req.params.code]);
+
+        await audit(req, {
+            action: 'instrument.updated', entity: 'sector', entityId: req.params.code,
+            before: { name: sct.sector_name }, after: { name },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("sector PUT", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.put("/sectors/:code/active", requirePerm('instrument.publish'), async (req, res) => {
+    try {
+        const [[sct]] = await db.query(`SELECT * FROM sector WHERE sector_code=?`, [req.params.code]);
+        if (!sct) return res.status(404).json({ error: "That instrument does not exist" });
+
+        const active = req.body.active ? 1 : 0;
+        // Disabling takes it out of the pickers. Suppliers already classified
+        // into it keep their classification and their assessments keep working -
+        // this only stops it being chosen again.
+        await db.query(`UPDATE sector SET active=? WHERE sector_code=?`, [active, req.params.code]);
+        await audit(req, {
+            action: active ? 'instrument.enabled' : 'instrument.disabled',
+            entity: 'sector', entityId: req.params.code,
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("sector active", e, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.delete("/sectors/:code", requirePerm('instrument.publish'), async (req, res) => {
+    try {
+        const [[sct]] = await db.query(`SELECT * FROM sector WHERE sector_code=?`, [req.params.code]);
+        if (!sct) return res.status(404).json({ error: "That instrument does not exist" });
+
+        const [[used]] = await db.query(
+            `SELECT
+               (SELECT COUNT(*) FROM instrument_version WHERE sector_code=?) AS versions,
+               (SELECT COUNT(*) FROM third_party WHERE sector_code=? AND deleted_time IS NULL) AS third_parties`,
+            [req.params.code, req.params.code]);
+        if (used.versions > 0 || used.third_parties > 0) {
+            return res.status(409).json({
+                error: "IN_USE",
+                message: `${req.params.code} is used by ${used.third_parties} supplier(s) and ${used.versions} version(s). Disable it instead - deleting it would orphan documents already issued.`,
+            });
+        }
+
+        await db.query(`DELETE FROM sector WHERE sector_code=?`, [req.params.code]);
+        await audit(req, {
+            action: 'instrument.deleted', entity: 'sector', entityId: req.params.code,
+            before: { name: sct.sector_name },
+        });
+        res.json({ success: true });
+    } catch (e) {
+        logError("sector DELETE", e, req);
         res.status(500).json({ error: "Database error" });
     }
 });

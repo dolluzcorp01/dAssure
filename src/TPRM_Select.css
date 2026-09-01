@@ -1,0 +1,146 @@
+/* The searchable select. Sized and coloured to sit interchangeably with
+   .tprm-input and .tprm-select, so swapping one in never moves a layout. */
+
+.tprm-sel { position: relative; display: inline-block; width: 100%; }
+
+.tprm-sel-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: 1px solid var(--tprm-line);
+    background: #fff;
+    color: var(--tprm-body);
+    border-radius: 7px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.tprm-sel-btn:hover:not(:disabled) { border-color: #C7D2DE; }
+
+.tprm-sel-btn:focus-visible,
+.tprm-sel.open .tprm-sel-btn {
+    outline: none;
+    border-color: var(--tprm-gold);
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .22);
+}
+
+.tprm-sel.disabled .tprm-sel-btn {
+    background: #F7F9FB;
+    color: var(--tprm-faint);
+    cursor: not-allowed;
+}
+
+.tprm-sel-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Nothing chosen reads as an instruction, not as a value. */
+.tprm-sel-value.placeholder { color: var(--tprm-faint); }
+
+.tprm-sel-caret { font-size: 11px; color: var(--tprm-faint); flex: 0 0 auto; transition: transform .15s; }
+.tprm-sel.open .tprm-sel-caret { transform: rotate(180deg); }
+
+@media (prefers-reduced-motion: reduce) {
+    .tprm-sel-caret { transition: none; }
+}
+
+/* ---------------------------------------------------------- the panel */
+
+/* Fixed, and portalled onto <body>. A select in a table cell sits inside
+   .tprm-card.flush (overflow:hidden) and inside tables that scroll sideways;
+   an absolutely positioned panel is clipped by both. left/top/width are set
+   from the trigger's rect in JS and refreshed on any scroll or resize. */
+.tprm-sel-drop {
+    position: fixed;
+    z-index: 700;
+    background: #fff;
+    border: 1px solid var(--tprm-line);
+    border-radius: 10px;
+    box-shadow: 0 14px 38px rgba(14, 26, 43, .20);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
+}
+
+.tprm-sel-search {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--tprm-line-soft);
+    color: var(--tprm-faint);
+    background: var(--tprm-wash);
+}
+
+.tprm-sel-search input {
+    flex: 1;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 13.5px;
+    outline: none;
+    color: var(--tprm-body);
+    min-width: 0;
+}
+
+.tprm-sel-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px; }
+
+.tprm-sel-opt {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 13.5px;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--tprm-body);
+}
+
+/* Hover and keyboard share one highlight, so arrowing and pointing agree
+   about which row is next. */
+.tprm-sel-opt.active { background: var(--tprm-wash); }
+.tprm-sel-opt.on { font-weight: 600; }
+.tprm-sel-opt.disabled { color: var(--tprm-faint); cursor: not-allowed; }
+
+/* One line per option. In a narrow table cell a wrapping label turned a
+   twelve-item list into a wall; the full text is in the title attribute. */
+.tprm-sel-opt-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The parenthetical - "(no published version)", an email address - is the
+   thing that makes a long list navigable, so it is set apart rather than run
+   into the label. */
+.tprm-sel-opt-hint {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11.5px;
+    color: var(--tprm-faint);
+    font-weight: 400;
+    margin-top: 1px;
+}
+
+.tprm-sel-tick { color: var(--tprm-gold); font-size: 11px; flex: 0 0 auto; }
+
+.tprm-sel-empty { padding: 16px 12px; font-size: 13px; color: var(--tprm-faint); text-align: center; }

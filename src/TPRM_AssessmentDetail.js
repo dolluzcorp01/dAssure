@@ -4,6 +4,7 @@ import { apiJson, apiPost, apiPut, apiUpload, apiDownload } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_AssessmentDetail.css";
+import TPRMSelect from "./TPRM_Select";
 
 const POSITIONS = [
     "Compliant", "Partially Compliant", "Non-Compliant", "Not Evidenced", "Not Applicable",
@@ -241,39 +242,38 @@ function TPRMAssessmentDetail() {
                     <div className="tprm-assign-grid">
                         <div className="tprm-field">
                             <label htmlFor="tprm-assessor">Assessor</label>
-                            <select
+                            <TPRMSelect
                                 id="tprm-assessor"
-                                className="tprm-select"
                                 value={assign.assessorId}
-                                onChange={e => setAssign(v => ({ ...v, assessorId: e.target.value }))}
-                            >
-                                <option value="">Nobody assigned</option>
-                                {members.map(m => (
-                                    <option key={m.emp_id} value={m.emp_id}>
-                                        {m.emp_name} ({m.role_code})
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={v => setAssign(x => ({ ...x, assessorId: v }))}
+                                placeholder="Nobody assigned"
+                                ariaLabel="Assessor"
+                                options={members.map(m => ({
+                                    value: m.emp_id, label: m.emp_name, hint: m.role_name || m.role_code,
+                                }))}
+                            />
                         </div>
                         <div className="tprm-field">
                             <label htmlFor="tprm-reviewer">Reviewer</label>
-                            <select
+                            {/* The assessor stays in the list but cannot be picked,
+                                 so the separation-of-duties rule is visible rather
+                                 than enforced by an absence. The database has a
+                                 trigger for it either way. */}
+                            <TPRMSelect
                                 id="tprm-reviewer"
-                                className="tprm-select"
                                 value={assign.reviewerId}
-                                onChange={e => setAssign(v => ({ ...v, reviewerId: e.target.value }))}
-                            >
-                                <option value="">Nobody assigned</option>
-                                {members.map(m => (
-                                    <option
-                                        key={m.emp_id}
-                                        value={m.emp_id}
-                                        disabled={String(m.emp_id) === String(assign.assessorId)}
-                                    >
-                                        {m.emp_name} ({m.role_code})
-                                    </option>
-                                ))}
-                            </select>
+                                onChange={v => setAssign(x => ({ ...x, reviewerId: v }))}
+                                placeholder="Nobody assigned"
+                                ariaLabel="Reviewer"
+                                options={members.map(m => ({
+                                    value: m.emp_id,
+                                    label: m.emp_name,
+                                    hint: String(m.emp_id) === String(assign.assessorId)
+                                        ? "already the assessor"
+                                        : (m.role_name || m.role_code),
+                                    disabled: String(m.emp_id) === String(assign.assessorId),
+                                }))}
+                            />
                             <div className="tprm-hint">
                                 The reviewer cannot be the same person as the assessor
                             </div>

@@ -4,6 +4,34 @@ import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Methodology.css";
 
+/* One dial. A weight is a proportion tuned against its neighbours, so the
+   control is a slider: a column of them shows the relative sizes at a glance,
+   where a column of number boxes makes you do the arithmetic yourself. The
+   monospace readout keeps the exact value visible, so nothing is lost by not
+   typing it. */
+function Dial({ label, note, value, onChange, min, max, step, format }) {
+    return (
+        <div className="tprm-meth-row">
+            <div className="tprm-meth-label">
+                <div className="tprm-meth-name">{label}</div>
+                {note && <div className="tprm-meth-note">{note}</div>}
+            </div>
+            <input
+                type="range"
+                className="tprm-meth-slider"
+                min={min} max={max} step={step}
+                value={value}
+                aria-label={label}
+                onChange={e => onChange(Number(e.target.value))}
+            />
+            <span className="tprm-meth-value mono">{format(value)}</span>
+        </div>
+    );
+}
+
+const f2 = (v) => Number(v || 0).toFixed(2);
+const fInt = (v) => String(Math.round(Number(v || 0)));
+
 function TPRMMethodology() {
     const { tenantId, tenant } = useAccess();
     const [m, setM] = useState(null);
@@ -64,85 +92,80 @@ function TPRMMethodology() {
 
             <div className="tprm-grid k2">
                 <div className="tprm-card">
-                    <div className="tprm-card-title" style={{ marginBottom: 6 }}>
-                        INHERENT RISK DIMENSION WEIGHTS
-                    </div>
-                    <div className={"tprm-meth-total " + (balanced ? "ok" : "bad")}>
-                        Total {dimTotal.toFixed(3)}
-                        {balanced ? " — balanced" : " — must equal 1.000 before this can be saved"}
+                    {/* The running total sits on the header row rather than in a
+                        banner below it: it is a property of this group, and it is
+                        the one thing that decides whether Save is live. */}
+                    <div className="tprm-meth-head">
+                        <div className="tprm-card-title">Inherent risk dimension weights</div>
+                        <span className={"tprm-chip " + (balanced ? "green" : "red")}>
+                            {balanced ? "BALANCED 1.00" : `OUT OF BALANCE ${dimTotal.toFixed(2)}`}
+                        </span>
                     </div>
                     {m.dimensions.map(d => (
-                        <div className="tprm-meth-row" key={d.dimension_code}>
-                            <div>
-                                <div className="tprm-meth-name">{d.dimension_name}</div>
-                                <div className="tprm-meth-note">{d.note}</div>
-                            </div>
-                            <input
-                                type="number" step="0.01" min="0" max="1"
-                                className="tprm-input tprm-meth-input"
-                                value={m.dimensionWeights[d.dimension_code] ?? 0}
-                                onChange={e => setDim(d.dimension_code, e.target.value)}
-                            />
-                        </div>
+                        <Dial
+                            key={d.dimension_code}
+                            label={d.dimension_name}
+                            note={d.note}
+                            value={m.dimensionWeights[d.dimension_code] ?? 0}
+                            onChange={v => setDim(d.dimension_code, v)}
+                            min={0} max={0.6} step={0.01} format={f2}
+                        />
                     ))}
 
-                    <div className="tprm-card-title" style={{ margin: "24px 0 10px" }}>TIER THRESHOLDS</div>
+                    <div className="tprm-meth-head" style={{ marginTop: 24 }}>
+                        <div className="tprm-card-title">Tier thresholds</div>
+                    </div>
                     <div className="tprm-note" style={{ marginBottom: 12 }}>
                         An inherent score at or above the Tier 1 threshold is Tier 1. At or above the
                         Tier 2 threshold is Tier 2. Everything else is Tier 3.
                     </div>
-                    <div className="tprm-meth-row">
-                        <div className="tprm-meth-name">Tier 1 threshold</div>
-                        <input
-                            type="number" step="0.05" min="1" max="3"
-                            className="tprm-input tprm-meth-input"
-                            value={m.tier1Threshold}
-                            onChange={e => setM({ ...m, tier1Threshold: Number(e.target.value) })}
-                        />
-                    </div>
-                    <div className="tprm-meth-row">
-                        <div className="tprm-meth-name">Tier 2 threshold</div>
-                        <input
-                            type="number" step="0.05" min="1" max="3"
-                            className="tprm-input tprm-meth-input"
-                            value={m.tier2Threshold}
-                            onChange={e => setM({ ...m, tier2Threshold: Number(e.target.value) })}
-                        />
-                    </div>
+                    <Dial
+                        label="Tier 1, Critical, score at or above"
+                        value={m.tier1Threshold}
+                        onChange={v => setM({ ...m, tier1Threshold: v })}
+                        min={1} max={3} step={0.05} format={f2}
+                    />
+                    <Dial
+                        label="Tier 2, Significant, score at or above"
+                        note={Number(m.tier2Threshold) >= Number(m.tier1Threshold)
+                            ? "Tier 2 must stay below Tier 1 — the database refuses it either way"
+                            : undefined}
+                        value={m.tier2Threshold}
+                        onChange={v => setM({ ...m, tier2Threshold: v })}
+                        min={1} max={3} step={0.05} format={f2}
+                    />
 
-                    <div className="tprm-card-title" style={{ margin: "24px 0 10px" }}>
-                        REMEDIATION SLA, IN DAYS
+                    <div className="tprm-meth-head" style={{ marginTop: 24 }}>
+                        <div className="tprm-card-title">Remediation SLA, in days</div>
                     </div>
                     {["Critical", "High", "Medium", "Low"].map(sev => (
-                        <div className="tprm-meth-row" key={sev}>
-                            <div className="tprm-meth-name">{sev}</div>
-                            <input
-                                type="number" min="1" max="365"
-                                className="tprm-input tprm-meth-input"
-                                value={m.sla[sev] ?? 30}
-                                onChange={e => setM({ ...m, sla: { ...m.sla, [sev]: Number(e.target.value) } })}
-                            />
-                        </div>
+                        <Dial
+                            key={sev}
+                            label={sev}
+                            value={m.sla[sev] ?? 30}
+                            onChange={v => setM({ ...m, sla: { ...m.sla, [sev]: v } })}
+                            min={1} max={120} step={1} format={fInt}
+                        />
                     ))}
                 </div>
 
                 <div className="tprm-card">
-                    <div className="tprm-card-title" style={{ marginBottom: 6 }}>CONTROL AREA WEIGHTS</div>
+                    <div className="tprm-meth-head">
+                        <div className="tprm-card-title">Control area weights</div>
+                    </div>
                     <div className="tprm-note" style={{ marginBottom: 14 }}>
                         Effectiveness is weighted by control area rather than averaged flat, so a
                         weak access control area is not cancelled out by a strong policy area.
                         These need not total anything in particular — only their ratios matter.
                     </div>
                     {m.domains.map(d => (
-                        <div className="tprm-meth-row" key={d.domain_code}>
-                            <div className="tprm-meth-name">{d.domain_name}</div>
-                            <input
-                                type="number" step="1" min="0" max="100"
-                                className="tprm-input tprm-meth-input"
-                                value={m.domainWeights[d.domain_code] ?? d.default_weight}
-                                onChange={e => setDom(d.domain_code, e.target.value)}
-                            />
-                        </div>
+                        <Dial
+                            key={d.domain_code}
+                            label={d.domain_name}
+                            value={m.domainWeights[d.domain_code] ?? d.default_weight}
+                            onChange={v => setDom(d.domain_code, v)}
+                            min={0} max={20} step={1} format={fInt}
+                        />
                     ))}
                 </div>
             </div>

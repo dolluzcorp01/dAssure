@@ -6,3 +6,60 @@
     max-width: 150px;
     line-height: 1.4;
 }
+
+/* The change note, inline-editable while the version is a draft. The pencil
+   only shows on hover so a read-only glance at the table stays quiet. */
+.tprm-qb-note { display: inline-flex; align-items: center; gap: 8px; }
+
+.tprm-qb-note .tprm-iconbtn {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+    opacity: 0;
+    transition: opacity .12s;
+}
+
+tr:hover .tprm-qb-note .tprm-iconbtn,
+.tprm-qb-note .tprm-iconbtn:focus-visible { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+    .tprm-qb-note .tprm-iconbtn { transition: none; }
+}
+
+.tprm-qb-noteedit { display: flex; align-items: center; gap: 8px; }
+.tprm-qb-noteedit .tprm-input { flex: 1; min-width: 200px; font-size: 13px; padding: 6px 10px; }
+
+/* ------------------------------------------------ the inline editor row */
+
+/* Tinted and ruled, so the row being written is obviously not yet one of the
+   rows already written. */
+.tprm-qrow td {
+    background: #FFFCF2;
+    vertical-align: top;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+.tprm-qrow td:first-child { box-shadow: inset 3px 0 0 var(--tprm-gold); }
+
+.tprm-qrow .tprm-input {
+    font-size: 13px;
+    padding: 6px 9px;
+    width: 100%;
+}
+
+.tprm-qrow-ref { font-family: var(--tprm-mono); font-weight: 700; }
+.tprm-qrow-text { resize: vertical; min-height: 46px; }
+
+/* Subordinate to the question above it: this is the only field a supplier
+   never sees, so it should not compete with the one they do. */
+.tprm-qrow-why {
+    margin-top: 6px;
+    font-size: 12px !important;
+    color: var(--tprm-muted);
+}
+
+.tprm-qrow-score { font-size: 12px !important; }
+
+/* A row of narrow cells needs the table to stop compressing them. */
+.tprm-qb-authoring { min-width: 1180px; }

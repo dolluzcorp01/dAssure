@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import LeftNavbar from "./left_navbar";
 import TopBar from "./TPRM_TopBar";
 import { AccessProvider, ProtectedRoute } from "./utils/AccessContext";
+import TPRMDialogHost from "./TPRM_Dialog";
 
 import Login from "./TPRM_Login";
 import Dashboard from "./TPRM_Dashboard";
@@ -31,6 +32,7 @@ function App() {
 
     return (
         <AccessProvider>
+            <TPRMDialogHost />
             {hideNavbar ? (
                 <Routes>
                     <Route path="/" element={<Navigate to="/login" replace />} />
