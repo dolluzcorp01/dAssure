@@ -316,7 +316,7 @@ function TPRMLogin() {
 
                 {expired ? (
                     <button
-                        className="tprm-btn gold wide"
+                        className={"tprm-btn gold wide" + (busy ? " loading" : "")}
                         disabled={busy}
                         onClick={resend}
                     >

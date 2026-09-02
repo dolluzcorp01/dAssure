@@ -152,36 +152,120 @@ router.post("/:tenantId/email/preview", requirePerm('assessment.assign'), async 
     }
 });
 
+/* The pack is built the same way whichever door it leaves by - downloaded and
+   sent by hand, or emailed from here - so the two routes share one builder and
+   cannot drift into sending different workbooks.
+
+   Throws NOTHING_IN_SCOPE rather than returning an empty file: a tiering pack
+   with no rows in it is not something anyone should be able to send. */
+async function buildTieringPack(tenantId) {
+    const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [tenantId]);
+    const [vendors] = await db.query(
+        `SELECT tp.third_party_id, tp.third_party_name, tp.sector_code, s.sector_name
+           FROM third_party tp
+           JOIN triage_decision td ON td.third_party_id = tp.third_party_id AND td.in_scope = 1
+           LEFT JOIN sector s ON s.sector_code = tp.sector_code
+          WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL
+          ORDER BY tp.third_party_name`, [tenantId]);
+    if (!vendors.length) {
+        const err = new Error(
+            "No suppliers are in scope after triage yet. Complete the Triage step first.");
+        err.nothingInScope = true;
+        throw err;
+    }
+
+    /* The core twelve, asked of every supplier. DISTINCT because every
+       published instrument carries its own copy of the same question. */
+    const [core] = await db.query(
+        `SELECT DISTINCT q.q_ref, q.dimension_code, q.q_text,
+                q.score_1_label, q.score_2_label, q.score_3_label, q.sort_order
+           FROM question q
+           JOIN instrument_version iv
+             ON iv.instrument_version_id = q.instrument_version_id AND iv.status='published'
+          WHERE q.q_type='tiering' AND q.is_core=1
+          ORDER BY q.sort_order, q.q_ref`);
+
+    /* Sector questions, carrying the sector they belong to. One workbook holds
+       every supplier, so these become columns like any other - but the pack
+       locks the cell on rows the question does not apply to, or the caterer
+       gets asked how deep its reach into the process estate is. */
+    const [extra] = await db.query(
+        `SELECT q.q_ref, q.dimension_code, q.q_text,
+                q.score_1_label, q.score_2_label, q.score_3_label, q.sort_order,
+                iv.sector_code
+           FROM question q
+           JOIN instrument_version iv
+             ON iv.instrument_version_id = q.instrument_version_id AND iv.status='published'
+          WHERE q.q_type='tiering' AND q.is_core=0
+            AND iv.sector_code IN (
+                SELECT DISTINCT tp.sector_code FROM third_party tp
+                  JOIN triage_decision td
+                    ON td.third_party_id = tp.third_party_id AND td.in_scope = 1
+                 WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL)
+          ORDER BY iv.sector_code, q.sort_order, q.q_ref`, [tenantId]);
+
+    const questions = core.map(q => ({ ...q, sector_code: null })).concat(extra);
+
+    const buf = await excel.tieringPack({ tenantName: t.tenant_name, questions, vendors });
+    return { tenantName: t.tenant_name, vendors, buf };
+}
+
+const nothingInScope = (res, e) => res.status(400).json({
+    error: "NOTHING_IN_SCOPE", message: e.message,
+});
+
+/* Which instruments the in-scope population actually needs, and whether each
+   one has a questionnaire published to bind an assessment to.
+
+   This is asked BEFORE the pack goes out. Finding out that eleven of twelve
+   instruments were never published only when the completed pack comes back -
+   after the client has done the work of filling it in - is the wrong end of
+   the job to discover it at.
+
+   EXISTS rather than a join: a sector could hold more than one published
+   version, and joining would multiply the supplier count by however many. */
+router.get("/:tenantId/tiering-readiness", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const [rows] = await db.query(
+            `SELECT tp.sector_code, s.sector_name, COUNT(*) AS suppliers,
+                    EXISTS (SELECT 1 FROM instrument_version iv
+                             WHERE iv.sector_code = tp.sector_code
+                               AND iv.status = 'published') AS published
+               FROM third_party tp
+               JOIN triage_decision td
+                 ON td.third_party_id = tp.third_party_id AND td.in_scope = 1
+               LEFT JOIN sector s ON s.sector_code = tp.sector_code
+              WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL
+              GROUP BY tp.sector_code, s.sector_name
+              ORDER BY published, s.sector_name`, [req.tenantId]);
+
+        const blocked = rows.filter(r => !Number(r.published));
+        res.json({
+            instruments: rows.length,
+            blockedInstruments: blocked.length,
+            inScope: rows.reduce((n, r) => n + Number(r.suppliers), 0),
+            blockedSuppliers: blocked.reduce((n, r) => n + Number(r.suppliers), 0),
+            blocked: blocked.map(r => ({
+                sectorCode: r.sector_code,
+                sectorName: r.sector_name || r.sector_code,
+                suppliers: Number(r.suppliers),
+            })),
+        });
+    } catch (e) {
+        logError("tiering-readiness", e, req);
+        res.status(500).json({ error: "Could not check the instruments" });
+    }
+});
+
 router.get("/:tenantId/tiering-pack", requirePerm('assessment.perform'), async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
 
-        const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [req.tenantId]);
-        const [vendors] = await db.query(
-            `SELECT tp.third_party_id, tp.third_party_name, tp.sector_code, s.sector_name
-               FROM third_party tp
-               JOIN triage_decision td ON td.third_party_id = tp.third_party_id AND td.in_scope = 1
-               LEFT JOIN sector s ON s.sector_code = tp.sector_code
-              WHERE tp.tenant_id = ? AND tp.deleted_time IS NULL
-              ORDER BY tp.third_party_name`, [req.tenantId]);
-        if (!vendors.length) {
-            return res.status(400).json({
-                error: "NOTHING_IN_SCOPE",
-                message: "No suppliers are in scope after triage yet. Complete the Triage step first.",
-            });
-        }
-
-        const [core] = await db.query(
-            `SELECT DISTINCT q.q_ref, q.dimension_code, q.q_text,
-                    q.score_1_label, q.score_2_label, q.score_3_label, q.sort_order
-               FROM question q
-               JOIN instrument_version iv
-                 ON iv.instrument_version_id = q.instrument_version_id AND iv.status='published'
-              WHERE q.q_type='tiering' AND q.is_core=1
-              ORDER BY q.sort_order, q.q_ref`);
-
-        const buf = await excel.tieringPack({ tenantName: t.tenant_name, questions: core, vendors });
+        const { vendors, buf } = await buildTieringPack(req.tenantId);
         await audit(req, {
             action: 'tiering.pack_downloaded', entity: 'tenant', entityId: req.tenantId,
             after: { vendors: vendors.length }, tenantId: req.tenantId,
@@ -191,8 +275,51 @@ router.get("/:tenantId/tiering-pack", requirePerm('assessment.perform'), async (
             `attachment; filename="Tiering_Pack_${vendors.length}_suppliers.xlsx"`);
         res.send(Buffer.from(buf));
     } catch (e) {
+        if (e.nothingInScope) return nothingInScope(res, e);
         logError("tiering-pack", e, req);
         res.status(500).json({ error: "Could not build the tiering pack" });
+    }
+});
+
+/* Email the pack to the client, the way the intake template goes out in step 1.
+   It goes to the client, never to a supplier: these twelve questions are about
+   the client's relationship with the supplier and only the client can answer
+   them. Queued through the outbox first, so nothing is lost if the mail
+   provider is briefly unavailable. */
+router.post("/:tenantId/tiering-pack/email", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const { to } = req.body;
+        if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
+            return res.status(400).json({ error: "A valid recipient email is required" });
+        }
+
+        const { tenantName, vendors, buf } = await buildTieringPack(req.tenantId);
+        const filename = `Tiering_Pack_${vendors.length}_suppliers.xlsx`;
+        const key = storage.keyFor(`tenant/${req.tenantId}/tiering`, filename);
+        storage.put(key, Buffer.from(buf));
+
+        const tpl = mailer.templates.renderTieringPackEmail(
+            { tenantName, count: vendors.length });
+        await mailer.queue({
+            tenantId: req.tenantId, to, subject: tpl.subject, body: tpl.text, html: tpl.html,
+            attachmentKey: key, attachmentName: filename,
+            kind: 'tiering_pack', empId: req.emp_id,
+        });
+        await audit(req, {
+            action: 'tiering.pack_emailed', entity: 'tenant', entityId: req.tenantId,
+            after: { to, vendors: vendors.length }, tenantId: req.tenantId,
+        });
+        res.json({
+            success: true,
+            message: `Tiering pack for ${vendors.length} suppliers queued for ${to}`,
+        });
+    } catch (e) {
+        if (e.nothingInScope) return nothingInScope(res, e);
+        logError("tiering-pack email", e, req);
+        res.status(500).json({ error: "Could not queue the tiering pack" });
     }
 });
 

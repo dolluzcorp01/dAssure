@@ -23,12 +23,30 @@ const FAMILY_CHIP = {
 
 function TPRMStandards() {
     const [d, setD] = useState(null);
+    const [err, setErr] = useState(null);
 
     useEffect(() => {
         apiJson("/api/tprm/library/standards")
-            .then(setD)
-            .catch(() => setD({ total: 0, standards: [] }));
+            .then(d2 => { setD(d2); setErr(null); })
+            .catch(setErr);
     }, []);
+
+    if (err) {
+        return (
+            <div className="tprm-page">
+                <div className="tprm-note danger">
+                    <b>The standards catalogue could not be loaded.</b>
+                    <div style={{ marginTop: 6 }}>
+                        {err.message || "The request failed."}
+                        {err.status ? <span className="code">{"  [HTTP " + err.status + "]"}</span> : null}
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                        A 401 or 403 here means the session has expired - sign in again.
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     if (!d) return <div className="tprm-loading">Loading standards...</div>;
 
@@ -51,7 +69,7 @@ function TPRMStandards() {
                             <th>Code</th>
                             <th>Title</th>
                             <th>Family</th>
-                            <th>Instruments using it</th>
+                            <th>Published instruments using it</th>
                         </tr>
                     </thead>
                     <tbody>

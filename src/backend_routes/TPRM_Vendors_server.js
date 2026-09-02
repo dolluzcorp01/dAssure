@@ -526,7 +526,7 @@ router.get("/:tenantId/funnel", async (req, res) => {
             `SELECT
               (SELECT COUNT(*) FROM third_party WHERE tenant_id=? AND deleted_time IS NULL) AS received,
               (SELECT COUNT(*) FROM third_party WHERE tenant_id=? AND deleted_time IS NULL
-                 AND sector_code <> 'GENERIC') AS classified,
+                 AND sector_confirmed_time IS NOT NULL) AS classified,
               (SELECT COUNT(*) FROM triage_decision td JOIN third_party tp
                     ON tp.third_party_id = td.third_party_id
                 WHERE tp.tenant_id=? AND td.in_scope=1) AS in_scope,
@@ -541,7 +541,7 @@ router.get("/:tenantId/funnel", async (req, res) => {
               -- these say which stage is actually starving, so the cards under
               -- it can send someone at the work rather than at a screen.
               (SELECT COUNT(*) FROM third_party WHERE tenant_id=? AND deleted_time IS NULL
-                 AND (sector_code IS NULL OR sector_code = 'GENERIC')) AS awaiting_classify,
+                 AND sector_confirmed_time IS NULL) AS awaiting_classify,
               (SELECT COUNT(*) FROM third_party tp
                 WHERE tp.tenant_id=? AND tp.deleted_time IS NULL
                   AND NOT EXISTS (SELECT 1 FROM triage_decision td

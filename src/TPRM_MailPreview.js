@@ -335,12 +335,14 @@ function TPRMMailPreview({
                         <>
                             <button className="tprm-btn" onClick={onClose} disabled={sending}>Cancel</button>
                             <button
-                                className="tprm-btn gold"
+                                className={"tprm-btn gold" + (sending ? " loading" : "")}
                                 onClick={send}
                                 disabled={sending || loading || !!error || !sendableChecked.length}
                                 title={!sendableChecked.length ? "Nobody on this list can be sent to" : undefined}
                             >
-                                <FaPaperPlane style={{ marginRight: 6 }} />
+                                {/* The spinner takes the icon's place while the
+                                    send is in flight, rather than sitting beside it. */}
+                                {!sending && <FaPaperPlane />}
                                 {sending ? "Sending…" : `Send (${sendableChecked.length})`}
                             </button>
                         </>

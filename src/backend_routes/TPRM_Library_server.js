@@ -8,13 +8,19 @@
 
 require("dotenv").config({ quiet: true });
 const express = require("express");
+const multer = require("multer");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
 const { audit, tenantScope, requirePerm } = require('./utils/tprm_audit');
 const classify = require('./utils/tprm_classify');
+const excel = require('./utils/tprm_excel');
 const { logError } = require('./utils/tprm_log');
 
 const router = express.Router();
+// In memory: a question template is small and is parsed once, so there is
+// nothing to gain from putting it on disk first.
+const upload = multer({ storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024 } });
 const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
 
 router.use(verifyJWT, tenantScope);
@@ -25,7 +31,13 @@ router.get("/sectors", async (_req, res) => {
         const [rows] = await db.query(
             `SELECT s.sector_code, s.sector_name, s.sector_group,
                     (SELECT COUNT(*) FROM instrument_version iv
-                      WHERE iv.sector_code = s.sector_code AND iv.status='published') AS published_versions
+                      WHERE iv.sector_code = s.sector_code AND iv.status='published') AS published_versions,
+                    (SELECT COUNT(*) FROM instrument_version iv
+                      WHERE iv.sector_code = s.sector_code) AS versions,
+                    (SELECT COUNT(*) FROM question q
+                       JOIN instrument_version iv2
+                         ON iv2.instrument_version_id = q.instrument_version_id
+                      WHERE iv2.sector_code = s.sector_code) AS questions
                FROM sector s WHERE s.active = 1
               ORDER BY s.sector_group, s.sort_order`);
         res.json(rows);
@@ -47,7 +59,8 @@ router.get("/sectors", async (_req, res) => {
 router.get("/standards", async (_req, res) => {
     try {
         const [[tot]] = await db.query(
-            `SELECT COUNT(*) AS n FROM sector WHERE active = 1`);
+            `SELECT COUNT(DISTINCT sector_code) AS n
+               FROM instrument_version WHERE status = 'published'`);
         const [rows] = await db.query(
             `SELECT s.standard_code, s.title, s.family, s.scope_note,
                     (SELECT COUNT(DISTINCT iv.sector_code)
@@ -65,6 +78,7 @@ router.get("/standards", async (_req, res) => {
               ORDER BY s.family, s.standard_code`);
         res.json({ total: Number(tot.n), standards: rows });
     } catch (e) {
+        logError("standards", e, _req);
         res.status(500).json({ error: "Database error" });
     }
 });
@@ -216,13 +230,26 @@ router.post("/instruments/version/:id/publish", requirePerm('instrument.publish'
         if (iv.status !== 'draft') {
             return res.status(400).json({ error: "NOT_A_DRAFT", message: "Only a draft can be published" });
         }
+        /* An instrument needs both halves to do its job. The control questions
+           are what the supplier answers; the tiering questions are what decides
+           how many of them that supplier is asked in the first place. Publishing
+           with either side empty produces an instrument that cannot complete a
+           single assessment - and publishing is the one act here that cannot be
+           undone, because a published version is frozen. */
         const [[count]] = await conn.query(
-            `SELECT COUNT(*) AS n FROM question WHERE instrument_version_id=? AND q_type='control'`,
-            [req.params.id]);
-        if (Number(count.n) === 0) {
+            `SELECT SUM(q_type='tiering') AS tiering, SUM(q_type='control') AS control
+               FROM question WHERE instrument_version_id=?`, [req.params.id]);
+        const nTier = Number(count.tiering) || 0;
+        const nCtl = Number(count.control) || 0;
+        if (!nTier || !nCtl) {
+            const missing = !nTier && !nCtl ? "no questions at all"
+                : !nTier ? "no tiering questions" : "no control questions";
             return res.status(400).json({
-                error: "NO_CONTROLS",
-                message: "This version has no control questions. Add some before publishing.",
+                error: !nCtl ? "NO_CONTROLS" : "NO_TIERING",
+                message: `This version has ${missing}. An instrument needs both a tiering set, `
+                    + `which decides the supplier's tier, and a control set, which is what the `
+                    + `supplier answers. Add the missing side before publishing.`,
+                details: [{ field: 'questions', message: `${nTier} tiering, ${nCtl} control` }],
             });
         }
 
@@ -559,6 +586,154 @@ router.delete("/instruments/version/:id", requirePerm('instrument.author'), asyn
    or a version authored against it, means the code is referenced in issued
    documents; disabling hides it from the pickers without breaking those. */
 
+/* ------------------------------ bulk question authoring, by workbook ----- */
+/* Thirty control questions typed one at a time is thirty rows of form filling.
+   The template carries the same columns the row editor does, so the two ways
+   in produce identical questions - the workbook is a faster door, not a
+   different one. */
+
+async function templateVars(sectorCode) {
+    const [[sec]] = await db.query(
+        `SELECT sector_name FROM sector WHERE sector_code = ?`, [sectorCode]);
+    const [dimensions] = await db.query(
+        `SELECT dimension_code, dimension_name FROM tiering_dimension ORDER BY sort_order`);
+    const [domains] = await db.query(
+        `SELECT domain_code, domain_name FROM control_domain ORDER BY sort_order`);
+    const [standards] = await db.query(
+        `SELECT standard_code FROM standard WHERE active = 1 ORDER BY family, standard_code`);
+    return {
+        sectorName: (sec && sec.sector_name) || sectorCode,
+        dimensions, domains,
+        standards: standards.map(s => s.standard_code),
+    };
+}
+
+router.get("/instruments/version/:id/question-template",
+    requirePerm('instrument.author'), async (req, res) => {
+    try {
+        const [[iv]] = await db.query(
+            `SELECT instrument_version_id, sector_code, status FROM instrument_version
+              WHERE instrument_version_id = ?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+
+        const vars = await templateVars(iv.sector_code);
+        const buf = await excel.questionTemplate(vars);
+        res.setHeader('Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition',
+            `attachment; filename="Questions_${iv.sector_code}_v${req.params.id}.xlsx"`);
+        res.send(Buffer.from(buf));
+    } catch (e) {
+        logError("question-template", e, req);
+        res.status(500).json({ error: "Could not build the template" });
+    }
+});
+
+/* Preview by default, write only when ?commit=1. Nothing lands in the version
+   until someone has seen what would land - the same contract the supplier
+   intake upload works to. */
+router.post("/instruments/version/:id/questions/import",
+    requirePerm('instrument.author'), upload.single('file'), async (req, res) => {
+    try {
+        const [[iv]] = await db.query(
+            `SELECT instrument_version_id, sector_code, status FROM instrument_version
+              WHERE instrument_version_id = ?`, [req.params.id]);
+        if (!iv) return res.status(404).json({ error: "That version does not exist" });
+        if (iv.status !== 'draft') return res.status(400).json(FROZEN);
+        if (!req.file) return res.status(400).json({ error: "Attach the completed question template" });
+
+        const vars = await templateVars(iv.sector_code);
+        let parsed;
+        try {
+            parsed = await excel.parseQuestionTemplate(req.file.buffer, vars);
+        } catch (pe) {
+            return res.status(400).json({ error: pe.code || 'UNREADABLE', message: pe.message });
+        }
+
+        // A reference already used in this version is a clash, not a duplicate
+        // inside the file, and it has to be reported as its own thing.
+        const [existing] = await db.query(
+            `SELECT q_ref FROM question WHERE instrument_version_id = ?`,
+            [iv.instrument_version_id]);
+        const taken = new Set(existing.map(r => String(r.q_ref).toUpperCase()));
+
+        const rows = [];
+        const problems = parsed.problems.slice();
+        parsed.rows.forEach(r => {
+            if (taken.has(r.qRef)) {
+                problems.push({ ...r, errors: [`${r.qRef} is already in this version`] });
+            } else {
+                rows.push(r);
+            }
+        });
+
+        const summary = {
+            read: rows.length + problems.length,
+            willImport: rows.length,
+            rejected: problems.length,
+            tiering: rows.filter(r => r.qType === 'tiering').length,
+            control: rows.filter(r => r.qType === 'control').length,
+        };
+
+        if (String(req.query.commit) !== '1') {
+            return res.json({ preview: true, summary, rows, problems });
+        }
+        if (!rows.length) {
+            return res.status(400).json({
+                error: "NOTHING_TO_IMPORT",
+                message: "Every row in the workbook was rejected. Fix them and upload it again.",
+            });
+        }
+
+        // Sort order continues from what is already there, per type, so an
+        // import into a part-authored version appends rather than interleaves.
+        const [[lastT]] = await db.query(
+            `SELECT COALESCE(MAX(sort_order),0) AS n FROM question
+              WHERE instrument_version_id=? AND q_type='tiering'`, [iv.instrument_version_id]);
+        const [[lastC]] = await db.query(
+            `SELECT COALESCE(MAX(sort_order),0) AS n FROM question
+              WHERE instrument_version_id=? AND q_type='control'`, [iv.instrument_version_id]);
+        let sortT = Number(lastT.n);
+        let sortC = Number(lastC.n);
+
+        const conn = await db.getConnection();
+        try {
+            await conn.beginTransaction();
+            for (const r of rows) {
+                const sort = r.qType === 'tiering' ? (sortT += 10) : (sortC += 10);
+                await conn.query(
+                    `INSERT INTO question
+                       (instrument_version_id, q_type, q_ref, dimension_code, domain_code, q_text,
+                        score_1_label, score_2_label, score_3_label, rationale,
+                        evidence_required, standards_mapping, tier_applies, sort_order)
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                    [
+                        iv.instrument_version_id, r.qType, r.qRef,
+                        r.dimensionCode, r.domainCode, r.qText,
+                        r.score1, r.score2, r.score3, r.rationale,
+                        r.evidenceRequired, r.standardsMapping, r.tierApplies, sort,
+                    ]);
+            }
+            await conn.commit();
+        } catch (te) {
+            await conn.rollback();
+            throw te;
+        } finally {
+            conn.release();
+        }
+
+        await audit(req, {
+            action: 'questions.imported', entity: 'instrument_version',
+            entityId: iv.instrument_version_id,
+            after: { imported: rows.length, tiering: summary.tiering, control: summary.control },
+        });
+        res.json({ imported: rows.length, summary });
+    } catch (e) {
+        logError("questions import", e, req);
+        res.status(500).json({ error: "Could not import the questions" });
+    }
+});
+
 router.get("/sectors/manage", requirePerm('instrument.author'), async (_req, res) => {
     try {
         const [rows] = await db.query(
@@ -567,7 +742,11 @@ router.get("/sectors/manage", requirePerm('instrument.author'), async (_req, res
                     (SELECT COUNT(*) FROM instrument_version iv
                       WHERE iv.sector_code = s.sector_code AND iv.status='published') AS published_versions,
                     (SELECT COUNT(*) FROM third_party tp
-                      WHERE tp.sector_code = s.sector_code AND tp.deleted_time IS NULL) AS third_parties
+                      WHERE tp.sector_code = s.sector_code AND tp.deleted_time IS NULL) AS third_parties,
+                    (SELECT COUNT(*) FROM question q
+                       JOIN instrument_version iv2
+                         ON iv2.instrument_version_id = q.instrument_version_id
+                      WHERE iv2.sector_code = s.sector_code) AS questions
                FROM sector s ORDER BY s.sector_group, s.sort_order, s.sector_name`);
         // in_use drives whether Delete is offered at all, the same way dAdmin's
         // option manager marks a value "unused".

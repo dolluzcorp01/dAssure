@@ -63,3 +63,32 @@ tr:hover .tprm-qb-note .tprm-iconbtn,
 
 /* A row of narrow cells needs the table to stop compressing them. */
 .tprm-qb-authoring { min-width: 1180px; }
+
+/* The two doors into bulk authoring, on one line with the note that explains
+   what the workbook is. */
+.tprm-qb-bulk {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.tprm-qb-bulk .tprm-hint { flex: 1 1 320px; min-width: 240px; }
+
+/* A version row is the control that chooses which question set is shown below,
+   so it has to look like one and mark the one in force. */
+.tprm-qb-vrow { cursor: pointer; }
+.tprm-qb-vrow:hover td { background: var(--tprm-wash); }
+
+.tprm-qb-vrow.on td { background: #FFFCF2; }
+.tprm-qb-vrow.on td:first-child { box-shadow: inset 3px 0 0 var(--tprm-gold); }
+
+/* A refresh keeps the content on screen and says it is updating, rather than
+   blanking the panel and rebuilding it. Pointer events go off for the duration
+   so a second click cannot land on rows that are about to be replaced. */
+.tprm-qb-body { transition: opacity .12s ease; }
+
+.tprm-qb-body.refreshing {
+    opacity: .55;
+    pointer-events: none;
+}

@@ -3,11 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { apiJson, apiPost, apiPut, apiUpload, apiDownload, API_BASE } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
+import FilterPills from "./TPRM_FilterPills";
 import { FaRegEnvelopeOpen, FaPaperPlane } from "react-icons/fa";
 import TPRMMailPreview from "./TPRM_MailPreview";
 import "./TPRM_VendorPopulation.css";
 import TPRMSelect from "./TPRM_Select";
-import TPRMClientBar from "./TPRM_ClientBar";
 
 // What each step of the pipeline is called, and what the heading over it says.
 // The rail that moves between the steps lives in the client bar, because the
@@ -33,6 +33,72 @@ const STEP_HEADS = {
         "Drop the whole ZIP the client sends back. Every workbook inside is read and reported separately."],
 };
 
+/* The seven steps, as a rail.
+   The pipeline is an order, and an order you cannot see is one people get lost
+   in - the funnel says how many suppliers are at each stage, but not which
+   stage you are standing on or what is already behind you.
+
+   A tick is claimed from the funnel's own backlog counts rather than from a
+   flag someone has to remember to set, so it means "nothing is waiting at this
+   stage" and cannot drift out of step with the work. */
+const STEPS = [
+    { key: "template", label: "Intake template" },
+    { key: "upload", label: "Upload list" },
+    { key: "classify", label: "Classify" },
+    { key: "triage", label: "Triage" },
+    { key: "tiering", label: "Tiering" },
+    { key: "distribute", label: "Issue and track" },
+    { key: "import", label: "Import" },
+];
+
+function stepsDone(f) {
+    if (!f) return {};
+    const n = k => Number(f[k]) || 0;
+    const arrived = n("received") > 0;
+    return {
+        // The template and the upload are both answered by the same fact:
+        // a population arrived. Nothing else can be true without it.
+        template: arrived,
+        upload: arrived,
+        classify: arrived && n("awaiting_classify") === 0,
+        triage: arrived && n("awaiting_triage") === 0,
+        // No backlog column for tiering, so it is read the other way round:
+        // everything that survived triage has been tiered.
+        tiering: n("in_scope") > 0 && n("tiered") >= n("in_scope"),
+        distribute: n("tiered") > 0 && n("awaiting_issue") === 0,
+        import: n("issued") > 0 && n("awaiting_import") === 0,
+    };
+}
+
+function StepRail({ step, goto, funnel }) {
+    const done = stepsDone(funnel);
+    return (
+        <div className="tprm-steps">
+            {STEPS.map((s, i) => {
+                // Also ticked while you are standing on it. Hiding the tick on the
+                // current step meant finishing the work you were looking at changed
+                // nothing on screen, which reads as "that did not count".
+                const isDone = !!done[s.key];
+                return (
+                    <React.Fragment key={s.key}>
+                        {i > 0 && <span className="tprm-step-arrow">&rarr;</span>}
+                        <button
+                            className={"tprm-step" + (step === s.key ? " active" : "")
+                                + (isDone ? " done" : "")}
+                            aria-current={step === s.key ? "step" : undefined}
+                            title={isDone ? s.label + " - nothing waiting here" : s.label}
+                            onClick={() => goto(s.key)}
+                        >
+                            <span className="n">{isDone ? "✓" : i + 1}</span>
+                            {s.label}
+                        </button>
+                    </React.Fragment>
+                );
+            })}
+        </div>
+    );
+}
+
 function TPRMVendorPopulation() {
     const { tenantId, tenant } = useAccess();
     // The step lives in the URL rather than in state, so the Vendor Population
@@ -43,6 +109,9 @@ function TPRMVendorPopulation() {
     // is user editable, and a hand typed ?step=classifed should not white out.
     const asked = params.get("step");
     const step = asked && STEP_HEADS[asked] ? asked : "overview";
+    // The supplier Open was clicked on, so the step can point at it rather
+    // than making someone find their own row again in a register of hundreds.
+    const focusId = params.get("tp");
     const [funnel, setFunnel] = useState(null);
 
     const goto = useCallback((key) => {
@@ -67,30 +136,26 @@ function TPRMVendorPopulation() {
 
     return (
         <div className="tprm-page">
-            {/* The bar names the client every screen below is scoped to, and
-                carries the rail once you are inside a step. On the overview
-                there is no rail: the funnel is the navigation there. */}
-            <TPRMClientBar
-                active="pop"
-                sub={step === "overview" ? null : step}
-                onStep={goto}
-            />
-
             {!tenantId ? (
                 <div className="tprm-note warn">Select a client first.</div>
             ) : step === "overview" ? (
-                funnel
-                    ? <Overview funnel={funnel} tenant={tenant} goto={goto} />
-                    : <div className="tprm-loading">Working out where the population is...</div>
+                <>
+                    <StepRail step={step} goto={goto} funnel={funnel} />
+                    {funnel
+                        ? <Overview funnel={funnel} tenant={tenant} goto={goto} />
+                        : <div className="tprm-loading">Working out where the population is...</div>}
+                </>
             ) : (
                 <>
+                    <StepRail step={step} goto={goto} funnel={funnel} />
                     <div className="tprm-page-head">
                         <div>
                             <h1 className="tprm-page-title">{head ? head[0] : "Vendor population"}</h1>
                             {head && <div className="tprm-page-sub">{head[1]}</div>}
                         </div>
                     </div>
-                    <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel} goto={goto} />
+                    <Body tenantId={tenantId} tenant={tenant} onChanged={loadFunnel}
+                        goto={goto} focusId={focusId} />
                 </>
             )}
         </div>
@@ -211,6 +276,109 @@ function Overview({ funnel, tenant, goto }) {
     );
 }
 
+/* Sorting, done in the browser on rows that are already here.
+
+   The register used to be ordered by the server on the very thing you were
+   changing - undecided first in triage, unconfirmed first in classify - so the
+   moment you decided a supplier its row left the group it was in and jumped
+   somewhere else in the table. You then lost your place, and the next row you
+   clicked was not the one you had been looking at.
+
+   The browser is the authority on order now. A decision changes the row, never
+   its position. Sorting by the Decision column is still there if you want the
+   queue behaviour - it is just a choice you make rather than one made for you
+   in the middle of your work. */
+const SORT_DIRS = { asc: 1, desc: -1 };
+
+function useSort(defaultKey) {
+    const [sort, setSort] = useState({ key: defaultKey, dir: "asc" });
+    const toggle = useCallback((key) => setSort(s => (
+        s.key === key
+            ? { key, dir: s.dir === "asc" ? "desc" : "asc" }
+            : { key, dir: "asc" }
+    )), []);
+    return [sort, toggle];
+}
+
+function sortRows(rows, sort, accessors) {
+    const pick = sort && accessors[sort.key];
+    if (!rows || !pick) return rows || [];
+    const dir = SORT_DIRS[sort.dir] || 1;
+    // slice() because sort mutates, and mutating the array held in state is how
+    // React is made to miss a change.
+    return rows.slice().sort((a, b) => {
+        const x = pick(a);
+        const y = pick(b);
+        // A blank is not a low value or a high one - "not decided" belongs at
+        // the bottom whichever way the column is turned.
+        const xe = x === null || x === undefined || x === "";
+        const ye = y === null || y === undefined || y === "";
+        if (xe || ye) return xe && ye ? 0 : xe ? 1 : -1;
+        if (typeof x === "number" && typeof y === "number") return (x - y) * dir;
+        return String(x).localeCompare(String(y), undefined, { numeric: true }) * dir;
+    });
+}
+
+/** A column heading you can sort by. The mark shows the direction in force. */
+function SortTh({ label, sortKey, sort, onSort, style }) {
+    const on = sort.key === sortKey;
+    return (
+        <th style={style} aria-sort={on ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+            <button
+                type="button"
+                className={"tprm-sort" + (on ? " on" : "")}
+                onClick={() => onSort(sortKey)}
+                title={"Sort by " + label}
+            >
+                {label}
+                <span className="tprm-sort-mark" aria-hidden="true">
+                    {on ? (sort.dir === "asc" ? "▲" : "▼") : "⇅"}
+                </span>
+            </button>
+        </th>
+    );
+}
+
+const num = v => (v === null || v === undefined || v === "" ? null : Number(v));
+
+const TRIAGE_SORT = {
+    ref_code: r => r.ref_code,
+    name: r => r.third_party_name,
+    instrument: r => r.sector_code,
+    data: r => r.data_access,
+    system: r => r.system_access,
+    value: r => num(r.annual_value),
+    decision: r => (r.in_scope === null || r.in_scope === undefined
+        ? null : Number(r.in_scope) === 1 ? "In scope" : "Descoped"),
+};
+
+const CLASSIFY_SORT = {
+    ref_code: r => r.ref_code,
+    name: r => r.third_party_name,
+    service: r => r.service_desc,
+    spend: r => r.spend_category,
+    instrument: r => r.sector_code,
+    confidence: r => num(r.confidence),
+};
+
+/* Open on the Third Parties register carries the supplier it was clicked on,
+   so the step it lands on can point straight at that row. Ids leave the API as
+   numbers and come back off the query string as text, so they are compared as
+   text. */
+const isFocus = (r, focusId) =>
+    focusId != null && String(r.third_party_id) === String(focusId);
+
+/** Scrolls the asked-for row into view once its register has actually loaded.
+ *  Called before any early return, because a hook cannot sit behind one. */
+function useFocusRow(loaded, focusId) {
+    const ref = useRef(null);
+    useEffect(() => {
+        if (!focusId || !loaded || !ref.current) return;
+        ref.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, [loaded, focusId]);
+    return ref;
+}
+
 /* =============================================== 1. the intake template */
 
 /* What the client is being asked for, column by column. This is the substance
@@ -311,10 +479,11 @@ function StepTemplate({ tenantId, tenant, goto }) {
                         </div>
                     </div>
                     <button
-                        className="tprm-btn primary wide" onClick={email}
+                        className={"tprm-btn primary wide" + (busy ? " loading" : "")}
+                        onClick={email}
                         disabled={busy || !to}
                     >
-                        Send template
+                        {busy ? "Sending..." : "Send template"}
                     </button>
                     <div className="tprm-hint" style={{ marginTop: 12 }}>
                         Mail is queued in the outbox first, so nothing is lost if the mail provider
@@ -494,8 +663,14 @@ const CLASSIFY_CARDS = [
     ["awaiting", "Still awaiting confirmation", "var(--tprm-blue)"],
 ];
 
-function StepClassify({ tenantId, onChanged, goto }) {
+const CLASSIFY_STATE = (r) => (
+    !r.sector_code ? "nomatch" : r.sector_confirmed_time ? "confirmed" : "awaiting");
+
+function StepClassify({ tenantId, onChanged, goto, focusId }) {
     const [d, setD] = useState(null);
+    const [filter, setFilter] = useState("all");
+    const [sort, toggleSort] = useSort("name");
+    const focusRow = useFocusRow(d, focusId);
     const [sectors, setSectors] = useState([]);
     const [rules, setRules] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -560,18 +735,17 @@ function StepClassify({ tenantId, onChanged, goto }) {
     // Everything the rules classified has already been agreed with, so the bulk
     // action has nothing left to do.
     const nothingToAccept = rows.every(r => r.sector_confirmed_time || !r.sector_code);
+    const n = k => rows.filter(r => CLASSIFY_STATE(r) === k).length;
+    const pills = [
+        { key: "all", label: "All", n: rows.length },
+        { key: "awaiting", label: "Awaiting confirmation", n: n("awaiting") },
+        { key: "confirmed", label: "Confirmed", n: n("confirmed") },
+        { key: "nomatch", label: "No match", n: n("nomatch") },
+    ];
+    const shown = filter === "all" ? rows : rows.filter(r => CLASSIFY_STATE(r) === filter);
 
     return (
         <>
-            <div className="tprm-step-actions">
-                <button className="tprm-btn" onClick={acceptAll} disabled={busy || nothingToAccept}>
-                    {busy ? "Accepting..." : "Accept all suggestions"}
-                </button>
-                <button className="tprm-btn gold" onClick={() => goto("triage")}>
-                    Continue to triage
-                </button>
-            </div>
-
             <div className="tprm-cls-cards">
                 {CLASSIFY_CARDS.map(([key, label, colour]) => (
                     <div className="tprm-card tprm-cls-card" key={key} style={{ borderTopColor: colour }}>
@@ -586,24 +760,51 @@ function StepClassify({ tenantId, onChanged, goto }) {
                 rules were unsure about. Anything above 90% is usually safe to accept.
             </div>
 
+            <div className="tprm-toolbar">
+                <FilterPills options={pills} value={filter} onChange={setFilter} />
+                <button className="tprm-btn" onClick={acceptAll} disabled={busy || nothingToAccept}>
+                    {busy ? "Accepting..." : "Accept all suggestions"}
+                </button>
+                <button className="tprm-btn gold" onClick={() => goto("triage")}>
+                    Continue to triage
+                </button>
+            </div>
+
             <div className="tprm-card flush">
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>Ref</th><th>Supplier</th><th>Service line</th>
-                            <th>Their spend category</th>
-                            <th style={{ width: 240 }}>Instrument</th><th>Confidence</th><th />
+                            <SortTh label="Supplier" sortKey="name" sort={sort} onSort={toggleSort}
+                                style={{ minWidth: 260 }} />
+                            <SortTh label="Service line" sortKey="service" sort={sort} onSort={toggleSort} />
+                            <SortTh label="Their spend category" sortKey="spend" sort={sort} onSort={toggleSort} />
+                            <SortTh label="Instrument" sortKey="instrument" sort={sort}
+                                onSort={toggleSort} style={{ width: 240 }} />
+                            <SortTh label="Confidence" sortKey="confidence" sort={sort} onSort={toggleSort} />
+                            <th className="tprm-col-actions" />
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map(r => (
+                        {sortRows(shown, sort, CLASSIFY_SORT).map(r => (
                             /* Anything still unconfirmed is tinted, so a long
                                register shows its own review queue. */
                             <tr key={r.third_party_id}
-                                className={r.sector_confirmed_time ? "" : "tprm-row-attention"}>
-                                <td className="num">{r.ref_code}</td>
-                                <td style={{ fontWeight: 600 }}>{r.third_party_name}</td>
-                                <td style={{ color: "var(--tprm-muted)", maxWidth: 320 }}>{r.service_desc}</td>
+                                ref={isFocus(r, focusId) ? focusRow : null}
+                                className={(r.sector_confirmed_time ? "" : "tprm-row-attention")
+                                    + (isFocus(r, focusId) ? " tprm-row-target" : "")}>
+                                <td>
+                                    <div className="tprm-ident">
+                                        <span className="tprm-ident-ref">{r.ref_code}</span>
+                                        <span className="tprm-ident-name">{r.third_party_name}</span>
+                                    </div>
+                                </td>
+                                <td className="tprm-desc">
+                                    {r.service_desc
+                                        ? <div className="tprm-desc-text" title={r.service_desc}>
+                                            {r.service_desc}
+                                        </div>
+                                        : <span style={{ color: "var(--tprm-faint)" }}>-</span>}
+                                </td>
                                 <td>
                                     {r.spend_category
                                         ? <span className="tprm-chip grey">{r.spend_category}</span>
@@ -648,7 +849,7 @@ function StepClassify({ tenantId, onChanged, goto }) {
                                 </td>
                                 {/* Confirmed is a state, not an action, so it stops
                                     being a button once it has happened. */}
-                                <td>
+                                <td className="tprm-col-actions">
                                     {r.sector_confirmed_time
                                         ? <span className="tprm-chip green">CONFIRMED</span>
                                         : (
@@ -666,7 +867,7 @@ function StepClassify({ tenantId, onChanged, goto }) {
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={7} className="tprm-empty">
+                            <tr><td colSpan={6} className="tprm-empty">
                                 No suppliers yet. The register is filled from the client's own
                                 supplier list.
                                 <div style={{ marginTop: 12, display: "flex", gap: 8,
@@ -718,8 +919,15 @@ function StepClassify({ tenantId, onChanged, goto }) {
 }
 
 /* ======================================================= 4. triage */
-function StepTriage({ tenantId, onChanged, goto }) {
+const TRIAGE_STATE = (r) => (
+    r.in_scope === null || r.in_scope === undefined ? "none"
+        : Number(r.in_scope) === 1 ? "in" : "out");
+
+function StepTriage({ tenantId, onChanged, goto, focusId }) {
     const [rows, setRows] = useState(null);
+    const [filter, setFilter] = useState("all");
+    const [sort, toggleSort] = useSort("name");
+    const focusRow = useFocusRow(rows, focusId);
 
     const load = useCallback(() => {
         apiJson(`/api/tprm/vendors/${tenantId}/triage`).then(setRows).catch(() => setRows([]));
@@ -746,6 +954,14 @@ function StepTriage({ tenantId, onChanged, goto }) {
 
     const undecided = rows.filter(r => r.in_scope === null).length;
     const inScope = rows.filter(r => Number(r.in_scope) === 1).length;
+    const n = k => rows.filter(r => TRIAGE_STATE(r) === k).length;
+    const pills = [
+        { key: "all", label: "All", n: rows.length },
+        { key: "none", label: "Not decided", n: n("none") },
+        { key: "in", label: "In scope", n: n("in") },
+        { key: "out", label: "Out of scope", n: n("out") },
+    ];
+    const shown = filter === "all" ? rows : rows.filter(r => TRIAGE_STATE(r) === filter);
 
     return (
         <>
@@ -770,26 +986,43 @@ function StepTriage({ tenantId, onChanged, goto }) {
                 Suppliers that reported no data access and no system connection on the intake sheet
                 were descoped automatically. Confirm or overturn each one.
             </div>
-            <div className="tprm-step-actions">
+            {/* The filters and the way out of the step belong on one line: both
+                are about the register as a whole, and stacking them pushed the
+                table itself below the fold. */}
+            <div className="tprm-toolbar">
+                <FilterPills options={pills} value={filter} onChange={setFilter} />
                 <button className="tprm-btn gold" onClick={() => goto("tiering")}>
                     Continue to tiering, {inScope} in scope
                 </button>
             </div>
+
             <div className="tprm-card flush">
                 <table className="tprm-table">
                     <thead>
                         <tr>
-                            <th>Ref</th><th>Supplier</th><th>Instrument</th>
-                            <th>Data access</th><th>System access</th><th>Annual value</th>
-                            <th>Decision</th><th>Reason</th><th>Scope decision</th>
+                            <SortTh label="Supplier" sortKey="name" sort={sort} onSort={toggleSort}
+                                style={{ minWidth: 260 }} />
+                            <SortTh label="Instrument" sortKey="instrument" sort={sort} onSort={toggleSort} />
+                            <SortTh label="Data access" sortKey="data" sort={sort} onSort={toggleSort} />
+                            <SortTh label="System access" sortKey="system" sort={sort} onSort={toggleSort} />
+                            <SortTh label="Annual value" sortKey="value" sort={sort} onSort={toggleSort} />
+                            <SortTh label="Decision" sortKey="decision" sort={sort} onSort={toggleSort} />
+                            <th className="tprm-reason">Reason</th>
+                            <th className="tprm-col-actions">Scope decision</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map(r => (
+                        {sortRows(shown, sort, TRIAGE_SORT).map(r => (
                             <tr key={r.third_party_id}
-                                className={Number(r.in_scope) === 0 ? "tprm-row-muted" : ""}>
-                                <td className="num">{r.ref_code}</td>
-                                <td style={{ fontWeight: 600 }}>{r.third_party_name}</td>
+                                ref={isFocus(r, focusId) ? focusRow : null}
+                                className={(Number(r.in_scope) === 0 ? "tprm-row-muted" : "")
+                                    + (isFocus(r, focusId) ? " tprm-row-target" : "")}>
+                                <td>
+                                    <div className="tprm-ident">
+                                        <span className="tprm-ident-ref">{r.ref_code}</span>
+                                        <span className="tprm-ident-name">{r.third_party_name}</span>
+                                    </div>
+                                </td>
                                 <td style={{ color: "var(--tprm-muted)", fontSize: 13 }}>
                                     {r.sector_code || "-"}
                                 </td>
@@ -812,15 +1045,19 @@ function StepTriage({ tenantId, onChanged, goto }) {
                                         ? <span className="tprm-chip grey">Not decided</span>
                                         : Number(r.in_scope) === 1
                                             ? <span className="tprm-chip green">In scope</span>
-                                            : <span className="tprm-chip grey">Out of scope</span>}
+                                            : <span className="tprm-chip faint">Out of scope</span>}
                                 </td>
-                                <td style={{ color: "var(--tprm-muted)", fontSize: 12, maxWidth: 260 }}>
-                                    {r.reason}
+                                <td className="tprm-reason">
+                                    {r.reason
+                                        ? <div className="tprm-reason-text" title={r.reason}>
+                                            {r.reason}
+                                        </div>
+                                        : <span style={{ color: "var(--tprm-faint)" }}>-</span>}
                                 </td>
                                 {/* The decision already taken is the filled one, so
                                     the current state is readable without going back
                                     to the Decision column. */}
-                                <td>
+                                <td className="tprm-col-actions">
                                     <div className="tprm-decide">
                                         <button
                                             className={"tprm-btn sm"
@@ -841,7 +1078,11 @@ function StepTriage({ tenantId, onChanged, goto }) {
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={9} className="tprm-empty">No suppliers yet.</td></tr>
+                            <tr><td colSpan={8} className="tprm-empty">
+                                {rows.length === 0
+                                    ? "No suppliers yet."
+                                    : "No suppliers in this state."}
+                            </td></tr>
                         )}
                     </tbody>
                 </table>
@@ -854,13 +1095,34 @@ function StepTriage({ tenantId, onChanged, goto }) {
 function StepTiering({ tenantId, onChanged, goto }) {
     const fileRef = useRef(null);
     const [busy, setBusy] = useState(false);
+    const [sending, setSending] = useState(false);
+    const [to, setTo] = useState("");
     const [result, setResult] = useState(null);
+    const [ready, setReady] = useState(null);
+
+    // Asked before the pack goes out, not after it comes back.
+    useEffect(() => {
+        if (!tenantId) return;
+        apiJson(`/api/tprm/distribution/${tenantId}/tiering-readiness`)
+            .then(setReady).catch(() => setReady(null));
+    }, [tenantId, result]);
 
     const download = async () => {
         setBusy(true);
         try {
             await apiDownload(`/api/tprm/distribution/${tenantId}/tiering-pack`, "Tiering_Pack.xlsx");
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+    };
+
+    /* Same shape as the intake template in step 1: the pack can go by hand or
+       straight from here. It goes to the CLIENT - only they can answer these. */
+    const email = async () => {
+        setSending(true);
+        try {
+            const r = await apiPost(`/api/tprm/distribution/${tenantId}/tiering-pack/email`, { to });
+            tprmAlert.success("Queued", r.message);
+            setTo("");
+        } catch (e) { tprmAlert.apiError(e); } finally { setSending(false); }
     };
 
     const importPack = async (file) => {
@@ -881,6 +1143,35 @@ function StepTiering({ tenantId, onChanged, goto }) {
                 this is a separate file from the questionnaire the supplier receives.
             </div>
 
+            {/* An assessment binds to a published instrument version, so a supplier
+                whose instrument has never been published cannot be tiered however
+                well the client fills the pack in. Said here, before the pack is
+                sent, rather than discovered on the way back. */}
+            {ready && ready.blockedInstruments > 0 && (
+                <div className="tprm-note danger" style={{ marginBottom: 18 }}>
+                    <b>
+                        {ready.blockedInstruments} of {ready.instruments} instruments in this
+                        population have no published questionnaire.
+                    </b>
+                    <div style={{ marginTop: 6 }}>
+                        {ready.blockedSuppliers} of {ready.inScope} in-scope suppliers cannot be
+                        tiered until one is published for them. The pack will still carry every
+                        supplier, and the rows for these will be skipped when you read it back.
+                    </div>
+                    <ul style={{ margin: "10px 0 0 18px" }}>
+                        {ready.blocked.map(b => (
+                            <li key={b.sectorCode} style={{ marginBottom: 2 }}>
+                                {b.sectorName} &mdash; {b.suppliers}
+                                {b.suppliers === 1 ? " supplier" : " suppliers"}
+                            </li>
+                        ))}
+                    </ul>
+                    <div style={{ marginTop: 10 }}>
+                        Publish a version for each on the <b>Question Bank</b> screen first.
+                    </div>
+                </div>
+            )}
+
             {/* Two routes, not two steps. They are alternatives - a pack for
                 volume, a live session for anything likely to land Tier 1 - and
                 numbering them 1 and 2 said the opposite. */}
@@ -894,6 +1185,31 @@ function StepTiering({ tenantId, onChanged, goto }) {
                     <button className="tprm-btn primary" onClick={download} disabled={busy}>
                         Download tiering pack
                     </button>
+
+                    <div className="tprm-route-send">
+                        <div className="tprm-field" style={{ marginBottom: 10 }}>
+                            <label htmlFor="tprm-tiering-to">Or email it to the client</label>
+                            <input
+                                id="tprm-tiering-to"
+                                className="tprm-input"
+                                type="email"
+                                value={to}
+                                placeholder="procurement.head@client.com"
+                                onChange={e => setTo(e.target.value)}
+                            />
+                        </div>
+                        <button
+                            className={"tprm-btn wide" + (sending ? " loading" : "")}
+                            onClick={email}
+                            disabled={sending || !to}
+                        >
+                            {sending ? "Sending..." : "Send tiering pack"}
+                        </button>
+                        <div className="tprm-hint" style={{ marginTop: 10 }}>
+                            Goes to the client, never to a supplier. Queued in the outbox first, so
+                            nothing is lost if the mail provider is briefly unavailable.
+                        </div>
+                    </div>
                 </div>
 
                 <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-purple)" }}>
@@ -921,7 +1237,9 @@ function StepTiering({ tenantId, onChanged, goto }) {
             {result && (
                 <div className="tprm-card flush" style={{ marginTop: 18 }}>
                     <div className="tprm-card-head">
-                        <div className="tprm-card-title">{result.tiered} SUPPLIERS TIERED</div>
+                        <div className="tprm-card-title">
+                            {result.tiered} {result.tiered === 1 ? "supplier" : "suppliers"} tiered
+                        </div>
                         <div style={{ marginLeft: "auto" }}>
                             <button className="tprm-btn sm" onClick={() => goto("distribute")}>
                                 Go to distribution
@@ -977,6 +1295,11 @@ function StepTiering({ tenantId, onChanged, goto }) {
 function StepDistribute({ tenantId, onChanged }) {
     const [rows, setRows] = useState(null);
     const [busy, setBusy] = useState(false);
+    // Which row is mid-send, rather than one flag for the table: a single
+    // boolean would spin every row's button at once and say nothing about
+    // which supplier is actually being mailed.
+    const [sendingId, setSendingId] = useState(null);
+    const [remindingId, setRemindingId] = useState(null);
     // { ids?, previewOnly, reminder } - null when closed.
     const [mail, setMail] = useState(null);
 
@@ -995,11 +1318,12 @@ function StepDistribute({ tenantId, onChanged }) {
     };
 
     const remind = async (a) => {
+        setRemindingId(a.assessment_id);
         try {
             await apiPost(`/api/tprm/distribution/assessments/${a.assessment_id}/remind`, {});
             tprmAlert.success("Reminder queued");
-            load(); onChanged();
-        } catch (e) { tprmAlert.apiError(e); }
+            await load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); } finally { setRemindingId(null); }
     };
 
     /* Two separate actions on every row, in the same order and position on all
@@ -1015,13 +1339,13 @@ function StepDistribute({ tenantId, onChanged }) {
             `It goes to ${r.recipient || "the security contact on file"}.`,
             "Yes, send it");
         if (!ok) return;
-        setBusy(true);
+        setSendingId(r.assessment_id);
         try {
             const res = await apiPost(`/api/tprm/distribution/${tenantId}/issue-email`,
                 { assessmentIds: [r.assessment_id] });
             tprmAlert.success(`${res.sent} questionnaire queued`);
-            load(); onChanged();
-        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+            await load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); } finally { setSendingId(null); }
     };
 
     /* Why a row cannot be mailed, in the words the modal uses. Returned rather
@@ -1135,21 +1459,25 @@ function StepDistribute({ tenantId, onChanged }) {
                                             <FaRegEnvelopeOpen />
                                         </button>
                                         <button
-                                            className="tprm-iconbtn solid"
+                                            className={"tprm-iconbtn solid"
+                                                + (sendingId === r.assessment_id ? " loading" : "")}
                                             title={blockedReason(r) || `Send ${r.third_party_name} their questionnaire`}
                                             aria-label="Send the email"
-                                            disabled={busy || !!blockedReason(r)}
+                                            disabled={busy || sendingId != null || remindingId != null
+                                                || !!blockedReason(r)}
                                             onClick={() => sendOne(r)}
                                         >
                                             <FaPaperPlane />
                                         </button>
                                         <button
-                                            className="tprm-btn sm"
-                                            disabled={!r.recipient || r.state === "imported" || !r.state}
+                                            className={"tprm-btn sm"
+                                                + (remindingId === r.assessment_id ? " loading" : "")}
+                                            disabled={!r.recipient || r.state === "imported" || !r.state
+                                                || sendingId != null || remindingId != null}
                                             title={!r.state ? "Not issued yet" : undefined}
                                             onClick={() => remind(r)}
                                         >
-                                            Remind
+                                            {remindingId === r.assessment_id ? "Sending..." : "Remind"}
                                         </button>
                                     </div>
                                 </td>

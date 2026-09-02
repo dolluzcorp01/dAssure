@@ -196,7 +196,7 @@ function TPRMReports() {
                                 Cancel
                             </button>
                             <button
-                                className="tprm-btn gold"
+                                className={"tprm-btn gold" + (busy ? " loading" : "")}
                                 onClick={issue}
                                 disabled={busy || !recipients.trim()}
                             >

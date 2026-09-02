@@ -295,11 +295,13 @@ async function tieringPack({ tenantName, questions, vendors }) {
 
     const legend = wb.addWorksheet('Questions', { views: [{ showGridLines: false }] });
     brand(wb, legend, 'What each column asks', tenantName);
-    headerRow(legend, 4, ['Ref', 'Dimension', 'Question', 'Score 1', 'Score 2', 'Score 3'],
-        [10, 14, 60, 26, 26, 26]);
+    headerRow(legend, 4,
+        ['Ref', 'Dimension', 'Question', 'Score 1', 'Score 2', 'Score 3', 'Asked of'],
+        [10, 14, 60, 26, 26, 26, 26]);
     questions.forEach((qq, i) => {
         const r = legend.getRow(5 + i);
-        [qq.q_ref, qq.dimension_code, qq.q_text, qq.score_1_label, qq.score_2_label, qq.score_3_label]
+        [qq.q_ref, qq.dimension_code, qq.q_text, qq.score_1_label, qq.score_2_label,
+         qq.score_3_label, qq.sector_code ? `${qq.sector_code} suppliers only` : 'Every supplier']
             .forEach((v, c) => {
                 const cell = r.getCell(c + 1);
                 cell.value = v || '';
@@ -315,13 +317,25 @@ async function tieringPack({ tenantName, questions, vendors }) {
         r.getCell(2).value = v.third_party_name;
         r.getCell(3).value = v.sector_name || v.sector_code;
         for (let c = 0; c < questions.length; c++) {
+            const q = questions[c];
             const cell = r.getCell(4 + c);
+            cell.alignment = { horizontal: 'center' };
+            // A sector question is only asked of suppliers on that instrument.
+            // The cell is filled and marked rather than left blank, so nobody
+            // has to work out from the column heading whether it was an
+            // oversight or deliberate.
+            const applies = !q.sector_code || q.sector_code === v.sector_code;
+            if (!applies) {
+                cell.value = 'n/a';
+                cell.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF8494A5' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F4F7' } };
+                continue;
+            }
             cell.dataValidation = {
                 type: 'list', allowBlank: true, formulae: ['"1,2,3"'],
                 showErrorMessage: true, errorTitle: 'Score 1, 2 or 3',
                 error: 'See the Questions sheet for what each score means.',
             };
-            cell.alignment = { horizontal: 'center' };
         }
         r.getCell(1).font = { name: 'Consolas', size: 9, color: { argb: 'FF5E6E80' } };
     });
@@ -345,10 +359,17 @@ async function parseTieringPack(buffer) {
         const tpId = Number(cellText(row.getCell(1).value));
         if (!tpId) continue;
         const answers = [];
+        // Not every column is asked of every supplier: a sector question is
+        // written 'n/a' on the rows it does not apply to. Those are neither an
+        // answer nor a gap, so they count towards neither.
+        let expected = 0;
         refs.forEach((ref, i) => {
             const v = cellText(row.getCell(4 + i).value);
-            if (v === null || String(v).trim() === '') return;
-            const n = Number(String(v).trim());
+            const t = v === null ? '' : String(v).trim();
+            if (t.toLowerCase() === 'n/a') return;
+            expected += 1;
+            if (t === '') return;
+            const n = Number(t);
             if (![1, 2, 3].includes(n)) {
                 problems.push({ row: r, ref, code: 'SCORE_NOT_RECOGNISED', message: `"${v}" is not 1, 2 or 3` });
                 return;
@@ -359,7 +380,7 @@ async function parseTieringPack(buffer) {
             third_party_id: tpId,
             third_party_name: cellText(row.getCell(2).value),
             answers,
-            expected: refs.length,
+            expected,
         });
     }
     return { rows: out, problems, refs };
@@ -495,8 +516,179 @@ async function registerExport({ tenantName, rows }) {
     return wb.xlsx.writeBuffer();
 }
 
+/* ============================================ 4. the question template
+   Authoring an instrument a question at a time is fine for a correction and
+   painful for a new one: thirty control questions is thirty rows typed into a
+   browser. This is the same set as a workbook - fill it in Excel, import it,
+   review what came in, save.
+
+   Two sheets, because the two kinds of question genuinely differ: a tiering
+   question carries three score labels and no evidence, a control question
+   carries evidence and a standard and no score labels. One merged sheet would
+   be half empty whichever row you were on. */
+
+const TIERING_COLS = [
+    ['Ref *', 12], ['Dimension code *', 18], ['Question *', 60],
+    ['Score 1 label', 26], ['Score 2 label', 26], ['Score 3 label', 26],
+    ['Why we ask', 40],
+];
+
+const CONTROL_COLS = [
+    ['Ref *', 12], ['Control area code *', 20], ['Question *', 60],
+    ['Evidence expected', 34], ['Standard', 26], ['Applies to tier', 15],
+    ['Why we ask', 40],
+];
+
+function questionSheet(wb, name, title, subtitle, cols, sample) {
+    const ws = wb.addWorksheet(name);
+    brand(wb, ws, title, subtitle);
+    headerRow(ws, 4, cols.map(c => c[0]), cols.map(c => c[1]));
+    const r = ws.getRow(5);
+    sample.forEach((v, c) => { r.getCell(c + 1).value = v; });
+    r.font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF8494A5' } };
+    r.alignment = { vertical: 'top', wrapText: true };
+    return ws;
+}
+
+/** vars: { sectorName, dimensions, domains, standards } */
+async function questionTemplate(vars) {
+    const v = vars || {};
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'Dolluz Corp TPRM Toolkit';
+    const name = v.sectorName || 'instrument';
+    const dims = v.dimensions || [];
+    const doms = v.domains || [];
+
+    questionSheet(wb, 'Tiering', 'Tiering questions',
+        name + ' - answered by the CLIENT, about the relationship',
+        TIERING_COLS, [
+            'T01', (dims[0] || {}).dimension_code || 'DATA',
+            'What is the highest classification of our data the third party can access?',
+            'Public or non-sensitive', 'Internal use only', 'Confidential, restricted or regulated',
+            'Delete this example row before importing.',
+        ]);
+
+    questionSheet(wb, 'Control', 'Control questions',
+        name + ' - answered by the SUPPLIER, about its own controls',
+        CONTROL_COLS, [
+            'GOV-01', (doms[0] || {}).domain_code || 'GOV',
+            'Is there a board approved information security policy, and when was it last reviewed?',
+            'Policy document with approval page and review date', 'ISO/IEC 27001:2022', 3,
+            'Delete this example row before importing.',
+        ]);
+
+    /* Every code the two sheets will accept, on a sheet of its own. A template
+       that validates against codes it never shows you is one that gets filled
+       in wrong once and then blamed. */
+    const ref = wb.addWorksheet('Reference');
+    brand(wb, ref, 'Codes you may use', 'Copy these exactly into the code columns');
+    headerRow(ref, 4, ['Sheet', 'Code', 'Means'], [14, 22, 60]);
+    let n = 5;
+    const put = (sheet, code, means) => {
+        const row = ref.getRow(n++);
+        row.getCell(1).value = sheet;
+        row.getCell(2).value = code;
+        row.getCell(3).value = means;
+        row.alignment = { vertical: 'top', wrapText: true };
+    };
+    dims.forEach(d => put('Tiering', d.dimension_code, d.dimension_name));
+    doms.forEach(d => put('Control', d.domain_code, d.domain_name));
+    put('Control', '1 / 2 / 3', 'Applies to tier: 1 = Tier 1 only, 2 = Tier 1 and 2, 3 = every tier');
+    (v.standards || []).forEach(x => put('Control', x, 'Standard, optional'));
+
+    return wb.xlsx.writeBuffer();
+}
+
+/** Reads a filled question template back. Writes nothing - the caller decides
+ *  what to do with the rows and with the problems. */
+async function parseQuestionTemplate(buffer, valid) {
+    const v = valid || {};
+    const wb = new ExcelJS.Workbook();
+    try { await wb.xlsx.load(buffer); } catch (e) {
+        throw Object.assign(new Error('That file could not be opened as an Excel workbook'),
+            { code: 'FILE_UNREADABLE' });
+    }
+
+    const dims = new Set((v.dimensions || []).map(d => d.dimension_code));
+    const doms = new Set((v.domains || []).map(d => d.domain_code));
+    const rows = [];
+    const problems = [];
+    const seen = new Set();
+
+    const readSheet = (sheetName, qType) => {
+        const ws = wb.getWorksheet(sheetName);
+        if (!ws) return;
+        for (let n = 5; n <= ws.rowCount; n++) {
+            const vals = ws.getRow(n).values.slice(1).map(cellText);
+            const cell = (i) => {
+                const x = vals[i];
+                return (x === null || x === undefined) ? '' : String(x).trim();
+            };
+            const qRef = cell(0).toUpperCase();
+            const code = cell(1).toUpperCase();
+            const qText = cell(2);
+            // A wholly blank row is where someone stopped typing, not an error.
+            if (!qRef && !code && !qText) continue;
+
+            const errs = [];
+            if (!qRef) errs.push('Ref is blank');
+            else if (qRef.length > 16) errs.push('Ref is longer than 16 characters');
+            else if (seen.has(qRef)) errs.push('Ref ' + qRef + ' appears more than once');
+            if (!qText) errs.push('Question is blank');
+            else if (qText.length > 600) errs.push('Question is longer than 600 characters');
+
+            if (!code) {
+                errs.push(qType === 'tiering' ? 'Dimension code is blank' : 'Control area code is blank');
+            } else if (qType === 'tiering' && !dims.has(code)) {
+                errs.push(code + ' is not a dimension code');
+            } else if (qType === 'control' && !doms.has(code)) {
+                errs.push(code + ' is not a control area code');
+            }
+
+            let tier = 3;
+            if (qType === 'control') {
+                const t = cell(5);
+                if (t) {
+                    tier = Number(t);
+                    if ([1, 2, 3].indexOf(tier) === -1) {
+                        errs.push('Applies to tier must be 1, 2 or 3');
+                        tier = 3;
+                    }
+                }
+            }
+
+            if (qRef) seen.add(qRef);
+            const row = {
+                sheet: sheetName, rowNo: n, qType: qType, qRef: qRef, qText: qText,
+                dimensionCode: qType === 'tiering' ? code : null,
+                domainCode: qType === 'control' ? code : null,
+                score1: qType === 'tiering' ? (cell(3) || null) : null,
+                score2: qType === 'tiering' ? (cell(4) || null) : null,
+                score3: qType === 'tiering' ? (cell(5) || null) : null,
+                evidenceRequired: qType === 'control' ? (cell(3) || null) : null,
+                standardsMapping: qType === 'control' ? (cell(4) || null) : null,
+                tierApplies: tier,
+                rationale: cell(6) || null,
+                errors: errs,
+            };
+            if (errs.length) problems.push(row); else rows.push(row);
+        }
+    };
+
+    readSheet('Tiering', 'tiering');
+    readSheet('Control', 'control');
+
+    if (!rows.length && !problems.length) {
+        throw Object.assign(
+            new Error('No question rows were found. Fill the Tiering or Control sheet and try again.'),
+            { code: 'NO_ROWS' });
+    }
+    return { rows: rows, problems: problems };
+}
+
 module.exports = {
     INTAKE_COLUMNS, VALID_POSITIONS,
+    questionTemplate, parseQuestionTemplate,
     intakeTemplate, parseIntake,
     tieringPack, parseTieringPack,
     controlWorkbook, parseControlWorkbook,

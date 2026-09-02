@@ -43,7 +43,11 @@
     padding: 22px;
 }
 
-.tprm-card.flush { padding: 0; overflow: hidden; }
+/* Wide tables scroll inside the card rather than being clipped by it. With
+   overflow:hidden a nine column register simply lost its right edge - and the
+   first thing to go was the padding on the actions column, so the buttons sat
+   flush against the border. */
+.tprm-card.flush { padding: 0; overflow: auto; }
 
 .tprm-card-head {
     padding: 13px 18px;
@@ -123,6 +127,95 @@
     vertical-align: middle;
 }
 
+/* A sortable heading. The button fills the cell so the whole heading is the
+   target, and it inherits the th's own type so sorting does not make one
+   column look different from the rest. */
+.tprm-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    text-align: left;
+}
+
+.tprm-sort:hover { color: var(--tprm-navy); }
+.tprm-sort.on { color: var(--tprm-navy); }
+
+/* The idle mark is held at low opacity rather than hidden, so the column
+   headings do not change width the first time one is sorted. */
+.tprm-sort-mark { font-size: 9px; opacity: .35; }
+.tprm-sort.on .tprm-sort-mark { opacity: 1; color: var(--tprm-gold); }
+
+.tprm-sort:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .30);
+    border-radius: 4px;
+}
+
+/* A supplier's identity: the reference and the name are one thing, so they
+   share one column. The code sits above in monospace, small and quiet - it is
+   what you quote in a document, not what you scan the table by - and the name
+   below gets the full width of the column instead of wrapping onto three
+   lines beside a code that only ever needs nine characters. */
+.tprm-ident { display: flex; flex-direction: column; gap: 2px; }
+
+.tprm-ident-ref {
+    font-family: var(--tprm-mono);
+    font-size: 11.5px;
+    color: var(--tprm-faint);
+    letter-spacing: .3px;
+}
+
+.tprm-ident-name { font-weight: 600; line-height: 1.35; }
+
+/* The actions column is pinned to the right edge and the register scrolls
+   underneath it, the way dAdmin pins its Actions column.
+
+   Without this the buttons are the first thing to leave the screen on a narrow
+   window - and on a decision row they are the only reason you opened the table
+   at all. A row you can read but cannot act on is worse than no row.
+
+   The cell needs its own opaque background: it is being scrolled under, so
+   anything transparent shows the columns passing beneath it. */
+.tprm-table th.tprm-col-actions,
+.tprm-table td.tprm-col-actions {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    width: 1%;
+    white-space: nowrap;
+    background: var(--tprm-card);
+    /* A shadow rather than a border: a border on a sticky cell disappears
+       under border-collapse in several browsers, a shadow never does. */
+    box-shadow: -10px 0 10px -10px rgba(14, 26, 43, .30);
+}
+
+.tprm-table th.tprm-col-actions {
+    background: var(--tprm-wash);
+    z-index: 3;
+}
+
+/* The pin has to carry the row's own colouring too, or the row appears to
+   change shade where the frozen column begins. */
+.tprm-table tbody tr:hover td.tprm-col-actions { background: var(--tprm-wash); }
+.tprm-table tr.danger td.tprm-col-actions { background: #FDF4F2; }
+
+/* The end columns get a little more room than the middle ones: the first
+   carries the reference the eye starts from, the last carries the actions. */
+.tprm-table th:first-child,
+.tprm-table td:first-child { padding-left: 20px; }
+
+.tprm-table th:last-child,
+.tprm-table td:last-child { padding-right: 24px; }
+
 .tprm-table tbody tr:hover { background: var(--tprm-wash); }
 .tprm-table tr.danger { background: #FDF4F2; }
 
@@ -184,6 +277,57 @@
 .tprm-btn.navy:hover { background: var(--tprm-ink-2); border-color: var(--tprm-ink-2); }
 
 .tprm-btn.sm { padding: 7px 13px; font-size: 13px; border-radius: 7px; }
+
+/* ------------------------------------------------------- busy buttons */
+/* A send is the one action a person cannot verify by looking at the screen,
+   so the button has to say it is working. The spinner is drawn in
+   currentColor, so it reads correctly on the navy, gold and plain fills
+   alike, and .tprm-btn is already inline-flex with a gap - the mark simply
+   takes its place beside the label without shifting it. */
+@keyframes tprm-spin { to { transform: rotate(360deg); } }
+
+.tprm-btn.loading { cursor: progress; }
+
+.tprm-btn.loading::before {
+    content: "";
+    width: 14px;
+    height: 14px;
+    flex: 0 0 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: tprm-spin .6s linear infinite;
+}
+
+.tprm-btn.sm.loading::before { width: 12px; height: 12px; flex-basis: 12px; }
+
+/* A disabled button dims to .45, which would take the spinner with it. While
+   it is loading the button is deliberately kept legible. */
+.tprm-btn.loading:disabled { opacity: 1; }
+
+/* The icon buttons carry a glyph rather than a label, so the spinner replaces
+   the glyph instead of sitting next to it. */
+.tprm-iconbtn.loading { position: relative; cursor: progress; opacity: 1; }
+.tprm-iconbtn.loading > * { visibility: hidden; }
+
+.tprm-iconbtn.loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 13px;
+    height: 13px;
+    margin: -7px 0 0 -7px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: tprm-spin .6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tprm-btn.loading::before,
+    .tprm-iconbtn.loading::after { animation-duration: 2.4s; }
+}
 
 .tprm-input, .tprm-select, .tprm-textarea {
     width: 100%;
@@ -376,6 +520,81 @@
     border-radius: 0 0 14px 14px;
 }
 
+/* --------------------------------------------------------- filter pills */
+/* One row of states with a count on each, the way dAdmin filters a payslip
+   run. The count is the point: it answers "is there anything in there" before
+   you spend a click finding out. */
+/* Filters on the left, the way out of the step on the right, one line.
+   Both are about the register as a whole rather than any one row, so they
+   belong together - and stacking them spent two rows of height pushing the
+   table itself below the fold. */
+.tprm-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+/* The first button after the filters takes the empty space, which pins it and
+   everything after it to the right edge however many pills there are. */
+.tprm-toolbar > .tprm-btn:first-of-type { margin-left: auto; }
+
+.tprm-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+
+.tprm-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px 7px 15px;
+    border: 1px solid var(--tprm-line);
+    border-radius: 20px;
+    background: #fff;
+    color: var(--tprm-muted);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tprm-pill:hover { border-color: #C7D2DE; color: var(--tprm-body); }
+
+.tprm-pill.on {
+    background: var(--tprm-ink);
+    border-color: var(--tprm-ink);
+    color: #fff;
+}
+
+/* The count rides inside the pill rather than beside it, so the pair reads as
+   one control and the row does not reflow when a number gains a digit. */
+.tprm-pill-n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 10px;
+    background: #EEF2F6;
+    color: var(--tprm-muted);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.tprm-pill.on .tprm-pill-n { background: rgba(255, 255, 255, .18); color: #fff; }
+
+.tprm-pill:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(201, 162, 39, .30);
+}
+
 /* ----------------------------------------------------------- stepper */
 /* The pipeline rail: numbered chips joined by arrows, on a card of its own.
    The number carries the state, gold when you are standing on it. */
@@ -426,6 +645,10 @@
 
 .tprm-step.active .n { background: var(--tprm-gold); color: var(--tprm-gold-ink); }
 .tprm-step.done .n { background: var(--tprm-green); color: #fff; }
+
+/* Both at once: where you are wins the colour, done still gets its tick. The
+   two facts are independent and the rail has to be able to say both. */
+.tprm-step.active.done .n { background: var(--tprm-gold); color: var(--tprm-gold-ink); }
 
 .tprm-step:focus-visible {
     outline: none;
@@ -511,8 +734,6 @@
    than hidden. */
 .tprm-tp-out { opacity: .55; }
 
-.tprm-tp-ref { font-weight: 700; font-size: 12.5px; }
-.tprm-tp-name { font-weight: 600; }
 .tprm-tp-instrument { font-size: 13px; color: var(--tprm-muted); }
 .tprm-tp-residual { font-weight: 700; }
 

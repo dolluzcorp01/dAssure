@@ -12,14 +12,27 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { FaTimes, FaPen, FaTrash, FaPlus } from "react-icons/fa";
 import { apiJson, apiPost, apiPut, apiDelete } from "./utils/api";
+import FilterPills from "./TPRM_FilterPills";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_InstrumentManager.css";
+
+/* The three states this screen exists to sort out. Nothing authored yet is the
+   one that needs real work; written but unpublished needs one click. */
+const MATCH = {
+    all: () => true,
+    noq: r => !Number(r.questions),
+    unpublished: r => Number(r.questions) > 0 && !Number(r.published_versions),
+    ready: r => Number(r.published_versions) > 0,
+};
 
 function TPRMInstrumentManager({ open, onClose, onChanged }) {
     const [rows, setRows] = useState(null);
     const [busy, setBusy] = useState(false);
     const [adding, setAdding] = useState({ code: "", name: "", group: "" });
     const [editing, setEditing] = useState(null);   // { code, name, group }
+    // "which ones still need questions written" is the reason this screen gets
+    // opened, so it is a filter rather than something to scroll for.
+    const [filter, setFilter] = useState("all");
 
     const load = useCallback(() => {
         apiJson("/api/tprm/library/sectors/manage")
@@ -123,9 +136,29 @@ function TPRMInstrumentManager({ open, onClose, onChanged }) {
                         be changed once the instrument exists. The name can.
                     </div>
 
+                    {rows && (() => {
+                        const n = k => rows.filter(r => MATCH[k](r)).length;
+                        return (
+                            <FilterPills
+                                options={[
+                                    { key: "all", label: "All", n: rows.length },
+                                    { key: "noq", label: "No questions", n: n("noq") },
+                                    { key: "unpublished", label: "Not published", n: n("unpublished") },
+                                    { key: "ready", label: "Published", n: n("ready") },
+                                ]}
+                                value={filter}
+                                onChange={setFilter}
+                            />
+                        );
+                    })()}
+
                     {!rows && <div className="tprm-loading">Loading…</div>}
 
-                    {rows && rows.map(r => (
+                    {rows && rows.filter(r => MATCH[filter](r)).length === 0 && (
+                        <div className="tprm-empty">No instruments in this state.</div>
+                    )}
+
+                    {rows && rows.filter(r => MATCH[filter](r)).map(r => (
                         <div className="tprm-im-row" key={r.sector_code}>
                             {editing && editing.code === r.sector_code ? (
                                 <>
@@ -152,9 +185,11 @@ function TPRMInstrumentManager({ open, onClose, onChanged }) {
                                     {/* Says why Delete is or is not on offer, rather than
                                         leaving a disabled button with no explanation. */}
                                     <span className="tprm-im-use">
-                                        {r.in_use
-                                            ? `${r.third_parties} supplier(s) · ${r.versions} version(s)`
-                                            : "unused"}
+                                        {!Number(r.questions)
+                                            ? "no questions"
+                                            : r.in_use
+                                                ? `${r.questions} questions · ${r.third_parties} supplier(s)`
+                                                : `${r.questions} questions`}
                                     </span>
                                     <span className={"tprm-chip " + (r.active ? "green" : "grey")}>
                                         {r.active ? "ACTIVE" : "DISABLED"}

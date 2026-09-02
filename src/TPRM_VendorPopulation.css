@@ -125,21 +125,101 @@
 
 /* The action that ends a step sits at the right edge, after the content the
    decision is made from - not before it. */
-.tprm-step-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 16px;
-}
-
 /* In scope / Descope belong on one line: they are two halves of one choice,
    and stacking them reads as two separate actions. */
-.tprm-decide { display: flex; gap: 6px; }
+/* The two scope buttons stay side by side and stay whole. This column is the
+   one thing on the row that must never be squeezed - a decision you cannot
+   click is not a decision. */
+/* The send panel under Route A. Ruled off from the download above it, because
+   they are two ways of doing the same thing rather than two separate jobs. */
+.tprm-route-send {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--tprm-line);
+}
+
+.tprm-decide { display: flex; gap: 6px; white-space: nowrap; }
+
+/* The tinted rows have to tint the pinned cell as well. Specificity is raised
+   deliberately so this holds whichever order the stylesheets happen to load
+   in - App.css owns the pin, this file owns the tints. */
+.tprm-table .tprm-row-attention td.tprm-col-actions,
+.tprm-table .tprm-row-target td.tprm-col-actions { background: #FFFCF2; }
+
+/* The descope reason is free text and will happily take the whole table if it
+   is allowed to. Fixed width on an element INSIDE the cell, because max-width
+   on a td is advisory under auto table layout and was being ignored - which is
+   what wrapped it to one word a line and pushed the buttons off the end.
+   Three lines, then the rest is on the tooltip. */
+.tprm-reason { width: 240px; max-width: 240px; }
+
+.tprm-reason-text {
+    width: 240px;
+    font-size: 12px;
+    color: var(--tprm-muted);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    cursor: help;
+}
+
+/* Same treatment for the service line, which is free text from the client's
+   own spreadsheet and just as capable of taking the table over. */
+.tprm-desc { width: 300px; max-width: 300px; }
+
+.tprm-desc-text {
+    width: 300px;
+    color: var(--tprm-muted);
+    font-size: 13.5px;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    cursor: help;
+}
+
+@media (max-width: 1400px) {
+    .tprm-reason, .tprm-reason-text { width: 170px; max-width: 170px; }
+    .tprm-desc, .tprm-desc-text { width: 210px; max-width: 210px; }
+}
 
 /* A descoped supplier stays on the register but is no longer the work, so it
    recedes rather than disappearing. */
 .tprm-row-muted td { opacity: .55; }
+
+/* Except the pinned cell. opacity fades the cell's BACKGROUND as well as its
+   contents, so at .55 the frozen column turned translucent and the Reason
+   column scrolled visibly underneath the buttons. The cell stays fully opaque
+   and the fading moves to what is inside it, which recedes exactly the same
+   amount without letting the table show through.
+
+   opacity also opens a new stacking context, which is its own quiet way of
+   breaking a sticky cell - another reason to keep it off this one. */
+.tprm-row-muted td.tprm-col-actions { opacity: 1; }
+.tprm-row-muted td.tprm-col-actions > * { opacity: .55; }
+
+/* The row Open asked for. It flashes once so the eye lands on it, then settles
+   to a quiet gold edge that stays - the register is long, and a highlight that
+   vanishes entirely leaves you hunting for the row a second time. */
+@keyframes tprm-row-land {
+    from { background: #FBEFC7; }
+    to   { background: #FFFCF2; }
+}
+
+.tprm-row-target td {
+    background: #FFFCF2;
+    animation: tprm-row-land 1.6s ease-out;
+    opacity: 1;
+}
+
+.tprm-row-target td:first-child { box-shadow: inset 3px 0 0 var(--tprm-gold); }
+
+@media (prefers-reduced-motion: reduce) {
+    .tprm-row-target td { animation: none; }
+}
 
 /* Confidence as a quantity. A column of bars can be scanned for the short
    ones without reading a single number. */

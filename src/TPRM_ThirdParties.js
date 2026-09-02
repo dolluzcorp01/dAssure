@@ -13,7 +13,6 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiJson } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
-import TPRMClientBar from "./TPRM_ClientBar";
 
 const TIER_CHIP = ["red", "amber", "green"];
 
@@ -27,6 +26,27 @@ function standing(r) {
     if (!r.assessment_id) return "not assessed";
     return String(r.assessment_state || "").replace(/_/g, " ");
 }
+
+/* Where a supplier with no assessment is actually waiting.
+   Dropping someone on the pipeline generally means "it is somewhere in these
+   seven screens, go and find it", which is not an answer - and they lose the
+   row they clicked on the way. Open goes to the step that is holding this
+   particular supplier up, carrying its id so the step can point at it.
+
+   Tiering takes the id too, though it has no register to highlight: it is a
+   pack you download and send, so the step itself is the destination. */
+function blockedAt(r) {
+    if (!r.sector_confirmed_time) return "classify";
+    if (r.in_scope === null || r.in_scope === undefined) return "triage";
+    if (Number(r.in_scope) === 0) return "triage";
+    return "tiering";
+}
+
+const STEP_WORD = {
+    classify: "confirm its instrument",
+    triage: "make its scope decision",
+    tiering: "tier it",
+};
 
 const pct = v => (v === null || v === undefined ? "-" : Math.round(v * 100) + "%");
 const num = v => (v === null || v === undefined ? "-" : v);
@@ -48,8 +68,6 @@ function TPRMThirdParties() {
 
     return (
         <div className="tprm-page">
-            <TPRMClientBar active="home" />
-
             {!tenantId ? (
                 <div className="tprm-note warn">Select a client first.</div>
             ) : !rows ? (
@@ -79,8 +97,7 @@ function TPRMThirdParties() {
                         <table className="tprm-table">
                             <thead>
                                 <tr>
-                                    <th>Reference</th>
-                                    <th>Third party</th>
+                                    <th style={{ minWidth: 260 }}>Third party</th>
                                     <th>Instrument</th>
                                     <th>Tier</th>
                                     <th>Inherent</th>
@@ -88,7 +105,7 @@ function TPRMThirdParties() {
                                     <th>Residual</th>
                                     <th>State</th>
                                     <th>Findings</th>
-                                    <th />
+                                    <th className="tprm-col-actions" />
                                 </tr>
                             </thead>
                             <tbody>
@@ -98,8 +115,14 @@ function TPRMThirdParties() {
                                     // never reads as work in flight.
                                     <tr key={r.third_party_id}
                                         className={r.in_scope === 0 ? "tprm-tp-out" : undefined}>
-                                        <td className="mono tprm-tp-ref">{r.ref_code}</td>
-                                        <td className="tprm-tp-name">{r.third_party_name}</td>
+                                        <td>
+                                            <div className="tprm-ident">
+                                                <span className="tprm-ident-ref">{r.ref_code}</span>
+                                                <span className="tprm-ident-name">
+                                                    {r.third_party_name}
+                                                </span>
+                                            </div>
+                                        </td>
                                         <td className="tprm-tp-instrument">{r.sector_name || "-"}</td>
                                         <td>
                                             {r.tier
@@ -117,15 +140,20 @@ function TPRMThirdParties() {
                                                 : <span className="tprm-chip faint">{standing(r)}</span>}
                                         </td>
                                         <td className="mono">{r.open_findings}</td>
-                                        <td>
+                                        <td className="tprm-col-actions">
                                             {/* Always offered. A supplier with no assessment yet is
-                                                not a dead end - it is work waiting in the pipeline,
-                                                which is where Open takes you. */}
+                                                not a dead end - it is work waiting at a particular
+                                                step, and that step is where Open takes you. */}
                                             <button
                                                 className="tprm-btn sm primary"
+                                                title={r.assessment_id
+                                                    ? "Open the assessment"
+                                                    : "Go to the pipeline to "
+                                                      + STEP_WORD[blockedAt(r)]}
                                                 onClick={() => navigate(r.assessment_id
                                                     ? "/Assessments/" + r.assessment_id
-                                                    : "/Vendor_Population")}
+                                                    : "/Vendor_Population?step=" + blockedAt(r)
+                                                      + "&tp=" + r.third_party_id)}
                                             >
                                                 Open
                                             </button>
@@ -134,7 +162,7 @@ function TPRMThirdParties() {
                                 ))}
                                 {rows.length === 0 && (
                                     <tr>
-                                        <td colSpan={10} className="tprm-empty">
+                                        <td colSpan={9} className="tprm-empty">
                                             No third parties on this client yet. The population
                                             pipeline is where they come from.
                                         </td>

@@ -30,7 +30,7 @@
 // rail carries navigation and nothing else.
 
 import React, { useMemo } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useAccess } from "./utils/AccessContext";
 import { ROLE_INFO, roleCode, roleColorOnDark } from "./utils/tprmRoles";
 import "./left_navbar.css";
@@ -86,6 +86,25 @@ export function navVisible(item, has, code, setupMode) {
     return !item.perm || has(item.perm);
 }
 
+/* The client workspace routes. None of them has a row in the rail - they are
+   reached through the client tab bar - so without this, standing on any of
+   them lit nothing at all and the rail looked broken. They belong to Clients,
+   which is how you got to them, so that is the row that stays marked.
+
+   Vendor Population is in here but not in NAV_ITEMS: it is a tab and never a
+   rail row, so it has no entry to derive from. */
+const CLIENT_ROUTES = NAV_ITEMS
+    .filter(i => i.where === "client")
+    .map(i => i.to)
+    .concat(["/Vendor_Population"]);
+
+/** Is this path one of the pages that lives inside a client? */
+export function isClientRoute(pathname) {
+    const p = String(pathname || "").toLowerCase();
+    return CLIENT_ROUTES.some(
+        to => p === to.toLowerCase() || p.startsWith(to.toLowerCase() + "/"));
+}
+
 /** What the row is called for this role - the route never changes, the word does. */
 export function navLabel(item, code) {
     return (item.labelAs && item.labelAs[code]) || item.label;
@@ -93,7 +112,9 @@ export function navLabel(item, code) {
 
 function LeftNavbar() {
     const { user, tenant, hasPerm, setupMode } = useAccess();
+    const { pathname } = useLocation();
     const code = roleCode(tenant);
+    const inClient = isClientRoute(pathname);
 
     // Menu visibility follows the permissions on the SELECTED client. Switch
     // client and the menu can legitimately change.
@@ -119,7 +140,8 @@ function LeftNavbar() {
         <NavLink
             key={item.to}
             to={item.to}
-            className={({ isActive }) => "tprm-nav-row" + (isActive ? " active" : "")}
+            className={({ isActive }) => "tprm-nav-row"
+                + (isActive || (item.to === "/Clients" && inClient) ? " active" : "")}
         >
             {navLabel(item, code)}
         </NavLink>
