@@ -8,7 +8,7 @@ const express = require("express");
 const multer = require("multer");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, permitted } = require('./utils/tprm_audit');
 const storage = require('./utils/tprm_storage');
 const A = require('./TPRM_Assessments_server');
 const { logError } = require('./utils/tprm_log');
@@ -120,7 +120,61 @@ router.get("/:id/download", async (req, res) => {
     }
 });
 
-router.post("/:id/validate", requirePerm('evidence.manage'), async (req, res) => {
+/* Removing a file that should not be there.
+ *
+ * Wrong file attached to the wrong control is the ordinary case - somebody
+ * uploads the MFA policy against the backup question - and without this the
+ * only way out was to leave it and hope the assessor noticed.
+ *
+ * Refused once the assessment is frozen. An approved or issued assessment was
+ * scored on the evidence it held, and a report has gone out citing it; letting
+ * that evidence disappear afterwards would make the report unverifiable. To
+ * change what a frozen assessment stands on, it goes back for rework first.
+ *
+ * The row goes and the stored bytes go with it. Keeping the file behind a
+ * deleted row would leave supplier material on disk that nothing references
+ * and nobody is watching. */
+router.delete("/:id", async (req, res) => {
+    try {
+        const [[e]] = await db.query(
+            `SELECT e.*, a.tenant_id, a.state, r.q_ref FROM evidence e
+               JOIN response r ON r.response_id = e.response_id
+               JOIN assessment a ON a.assessment_id = r.assessment_id
+              WHERE e.evidence_id = ?`, [req.params.id]);
+        if (!e) return res.status(404).json({ error: "That evidence file does not exist" });
+        req.tenantId = Number(e.tenant_id);
+        if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'evidence.manage')) return;
+
+        if (['approved', 'issued', 'closed'].includes(e.state)) {
+            return res.status(400).json({
+                error: "ASSESSMENT_FROZEN",
+                message: "This assessment has been approved, and its report cites the evidence "
+                    + "it held. Send it back for rework before changing what it stands on.",
+            });
+        }
+
+        await db.query(`DELETE FROM evidence WHERE evidence_id = ?`, [e.evidence_id]);
+        try { storage.remove(e.file_key); } catch (_) {
+            // The row is the record. A file left behind is worth logging and
+            // not worth failing the request over.
+            logError("evidence file remove", _, req);
+        }
+
+        await audit(req, {
+            action: 'evidence.removed', entity: 'evidence', entityId: e.evidence_id,
+            reason: req.body && req.body.reason ? String(req.body.reason).slice(0, 400) : null,
+            after: { control: e.q_ref, file: e.original_name },
+            tenantId: e.tenant_id,
+        });
+        res.json({ success: true, removed: e.original_name });
+    } catch (err) {
+        logError("evidence delete", err, req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+router.post("/:id/validate", async (req, res) => {
     try {
         const [[e]] = await db.query(
             `SELECT e.*, a.tenant_id FROM evidence e
@@ -130,6 +184,7 @@ router.post("/:id/validate", requirePerm('evidence.manage'), async (req, res) =>
         if (!e) return res.status(404).json({ error: "That evidence file does not exist" });
         req.tenantId = Number(e.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'evidence.manage')) return;
 
         await db.query(
             `UPDATE evidence SET validated_by=?, validated_time=NOW(3) WHERE evidence_id=?`,

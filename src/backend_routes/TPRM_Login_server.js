@@ -11,8 +11,13 @@
 // Also specific to dTprm is the second factor. A password alone never issues
 // a session here: /Verifylogin proves the password, mails a six digit code and
 // returns a short lived mfaToken. Only /mfa/verify sets the dTprm_token
-// cookie. Two factor is mandatory for every role, so there is no "remember
-// this device" and no way to opt out.
+// cookie.
+//
+// The one way past the code step is "Remember for 14 days". Read what that
+// does before relying on it: the window is recorded against the ACCOUNT, not
+// against a device or a browser, so once it is open the password alone signs
+// in from anywhere. It is not a remembered device - it is the second factor
+// switched off for fourteen days. See 015_mfa_trust.sql.
 
 require("dotenv").config();
 const express = require("express");
@@ -25,6 +30,7 @@ const mailer = require('./utils/tprm_mailer');
 const {
     OTP_TTL_SECONDS, RESEND_COOLDOWN_SECONDS, MAX_ATTEMPTS, MAX_SENDS,
     sha256, newOtp, codeMatches, maskEmail, signMfaToken, readMfaToken,
+    readMfaClaims, trustedUntil, rememberAccount, TRUST_DAYS,
 } = require('./utils/tprm_mfa');
 
 const router = express.Router();
@@ -235,15 +241,32 @@ router.post("/Verifylogin", async (req, res) => {
             });
         }
 
-        // The password is right and there is somewhere to go. Step two is not
-        // optional, so nothing is set on the browser yet - the caller gets a
-        // token that is only good for the code step, and the code goes by mail.
+        // The password is right and there is somewhere to go.
         req.emp_id = employee.emp_id;
         req.tprmUser = employee;
         await audit(req, { action: 'auth.password_ok', entity: 'employee', entityId: employee.emp_id });
 
+        /* A live remember window signs in on the password alone. The window is
+           held against the account, so this is reached from any browser on any
+           machine - which is the point of it, and the whole of its cost. It is
+           audited separately from a normal login so the trail shows plainly
+           which sessions were opened without a second factor. */
+        const until = await trustedUntil(tprm, employee.emp_id);
+        if (until) {
+            await issueSession(req, res, employee, 'auth.login_remembered');
+            return res.json({ next: "done", trustedUntil: until });
+        }
+
+        // Otherwise step two is not optional, so nothing is set on the browser
+        // yet - the caller gets a token that is only good for the code step,
+        // and the code goes by mail. The remember choice rides in that token
+        // rather than being re-sent with the code.
         const sent = await sendOtp(req, employee, 1);
-        return res.json({ next: "mfa", mfaToken: signMfaToken(employee.emp_id), ...sent });
+        return res.json({
+            next: "mfa",
+            mfaToken: signMfaToken(employee.emp_id, req.body.remember),
+            ...sent,
+        });
     } catch (e) {
         logError("dTprm login error", e, req);
         return res.status(500).json({ message: "Database error" });
@@ -350,8 +373,9 @@ router.post("/mfa/resend", async (req, res) => {
 router.post("/mfa/verify", async (req, res) => {
     try {
         const { mfaToken, code } = req.body || {};
-        const empId = readMfaToken(mfaToken);
-        if (!empId) return res.status(401).json({ message: "MFA_TOKEN_INVALID" });
+        const claims = readMfaClaims(mfaToken);
+        if (!claims) return res.status(401).json({ message: "MFA_TOKEN_INVALID" });
+        const empId = claims.empId;
 
         const live = await liveOtpFor(empId);
         if (!live) return res.status(400).json({ message: "OTP_NOT_SENT" });
@@ -392,7 +416,23 @@ router.post("/mfa/verify", async (req, res) => {
         if (!employee || !employee.active) return res.status(403).json({ message: "ACCOUNT_INACTIVE" });
 
         await issueSession(req, res, employee, 'auth.login');
-        return res.json({ success: true, message: "Login successful" });
+
+        /* Only ever opened here, on the far side of a redeemed code, so the
+           window cannot start without a second factor having been passed at
+           least once. */
+        let trustedUntilAt = null;
+        if (claims.remember) {
+            await rememberAccount(tprm, empId, req.ip,
+                req.headers && req.headers['user-agent']);
+            trustedUntilAt = await trustedUntil(tprm, empId);
+            await audit(req, {
+                action: 'auth.remember_granted', entity: 'employee', entityId: empId,
+                after: { days: TRUST_DAYS, scope: 'account, any browser' },
+            });
+        }
+        return res.json({
+            success: true, message: "Login successful", trustedUntil: trustedUntilAt,
+        });
     } catch (e) {
         logError("mfa/verify error", e, req);
         return res.status(500).json({ message: "Database error" });

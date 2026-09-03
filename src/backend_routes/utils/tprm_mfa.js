@@ -66,23 +66,72 @@ function maskEmail(email) {
 
 /** Signed after the password is accepted. Ten minutes covers a couple of
  *  resends of a two minute code; the code's own expiry is the tight one. */
-const signMfaToken = (empId) =>
-    jwt.sign({ emp_id: empId, typ: "mfa" }, JWT_SECRET, { expiresIn: "10m" });
+const signMfaToken = (empId, remember) =>
+    jwt.sign({ emp_id: empId, typ: "mfa", rm: !!remember }, JWT_SECRET, { expiresIn: "10m" });
 
 /** Returns the emp_id, or null when the token is missing, expired, tampered
  *  with, or is a real session token being passed off as an MFA one. */
 function readMfaToken(t) {
+    const c = readMfaClaims(t);
+    return c ? c.empId : null;
+}
+
+/** The same check, keeping the remember flag. It rides in the token rather
+ *  than being re-sent with the code, so the browser cannot turn it on between
+ *  the password step and the code step. */
+function readMfaClaims(t) {
     if (!t) return null;
     try {
         const p = jwt.verify(t, JWT_SECRET);
-        return p && p.typ === "mfa" ? p.emp_id : null;
+        if (!p || p.typ !== "mfa") return null;
+        return { empId: p.emp_id, remember: !!p.rm };
     } catch {
         return null;
     }
 }
 
+/* --------------------------------------------------- remembered accounts */
+
+/** How long a remembered account skips the code for. */
+const TRUST_DAYS = 14;
+
+/** Is this account inside a live remember window?
+ *
+ *  Keyed on emp_id alone: no cookie, agent or address is consulted, so the
+ *  answer is the same in every browser on every machine. That is the asked-for
+ *  behaviour, and it is why this is second factor off for the window rather
+ *  than a remembered device. */
+async function trustedUntil(db, empId) {
+    const [[row]] = await db.query(
+        `SELECT trusted_until FROM tprm_mfa_trust
+          WHERE emp_id = ? AND revoked_time IS NULL AND trusted_until > NOW(3)`, [empId]);
+    return row ? row.trusted_until : null;
+}
+
+/** Starts or extends the window. Called only after a code has been redeemed,
+ *  so the window can never open without a second factor having been passed. */
+async function rememberAccount(db, empId, ip, agent) {
+    await db.query(
+        `INSERT INTO tprm_mfa_trust (emp_id, trusted_until, granted_ip, granted_agent)
+         VALUES (?, DATE_ADD(NOW(3), INTERVAL ? DAY), ?, ?)
+         ON DUPLICATE KEY UPDATE
+           trusted_until = VALUES(trusted_until), granted_time = NOW(3),
+           granted_ip = VALUES(granted_ip), granted_agent = VALUES(granted_agent),
+           revoked_time = NULL`,
+        [empId, TRUST_DAYS, ip || null, (agent || '').slice(0, 255) || null]);
+}
+
+/** Ends it everywhere at once - the only way back to a code prompt before the
+ *  window runs out. */
+async function forgetAccount(db, empId) {
+    await db.query(
+        `UPDATE tprm_mfa_trust SET revoked_time = NOW(3)
+          WHERE emp_id = ? AND revoked_time IS NULL`, [empId]);
+}
+
 module.exports = {
-    OTP_TTL_SECONDS, RESEND_COOLDOWN_SECONDS, MAX_ATTEMPTS, MAX_SENDS,
+    OTP_TTL_SECONDS, RESEND_COOLDOWN_SECONDS, MAX_ATTEMPTS, MAX_SENDS, TRUST_DAYS,
     sha256, newOtp, codeMatches, maskEmail,
+    readMfaClaims, trustedUntil, rememberAccount, forgetAccount,
     signMfaToken, readMfaToken,
 };

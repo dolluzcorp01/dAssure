@@ -339,3 +339,7 @@
     .tprm-cls-explain { flex-direction: column; }
     .tprm-cls-explain > .tprm-card { width: 100%; }
 }
+
+/* Download and "it has gone" are two different acts, so they are two buttons
+   rather than one that quietly does both. */
+.tprm-route-actions { display: flex; gap: 10px; flex-wrap: wrap; }

@@ -8,7 +8,7 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requirePerm , permitted } = require('./utils/tprm_audit');
 const { logError } = require('./utils/tprm_log');
 
 const router = express.Router();

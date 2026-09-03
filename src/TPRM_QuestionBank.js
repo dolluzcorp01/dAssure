@@ -439,7 +439,7 @@ function TPRMQuestionBank() {
                                                 </span>
                                             )}
                                         </td>
-                                        <td style={{ fontSize: 12 }}>
+                                        <td className="tprm-nowrap" style={{ fontSize: 12 }}>
                                             {v.published_time ? String(v.published_time).slice(0, 10) : "-"}
                                         </td>
                                         <td>

@@ -8,7 +8,7 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, permitted } = require('./utils/tprm_audit');
 const { logError } = require('./utils/tprm_log');
 
 const router = express.Router();
@@ -51,12 +51,13 @@ router.get("/:tenantId/list", async (req, res) => {
     }
 });
 
-router.put("/:id", requirePerm('finding.manage'), async (req, res) => {
+router.put("/:id", async (req, res) => {
     try {
         const [[f]] = await db.query(`SELECT * FROM finding WHERE finding_id=?`, [req.params.id]);
         if (!f) return res.status(404).json({ error: "That finding does not exist" });
         req.tenantId = Number(f.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'finding.manage')) return;
 
         const { status, vendorOwner, detail, dueAt } = req.body;
         const allowed = ['open', 'in_progress', 'evidence_under_review', 'closed'];
@@ -96,12 +97,13 @@ router.put("/:id", requirePerm('finding.manage'), async (req, res) => {
 /** Accepting a risk is deliberately its own endpoint behind its own
  *  permission. It needs a named owner, a written reason, and an expiry date,
  *  because an accepted risk with no expiry is just a risk nobody looks at. */
-router.post("/:id/accept", requirePerm('risk.accept'), async (req, res) => {
+router.post("/:id/accept", async (req, res) => {
     try {
         const [[f]] = await db.query(`SELECT * FROM finding WHERE finding_id=?`, [req.params.id]);
         if (!f) return res.status(404).json({ error: "That finding does not exist" });
         req.tenantId = Number(f.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'risk.accept')) return;
 
         const { reason, owner, expires } = req.body;
         if (!reason || String(reason).trim().length < 20) {

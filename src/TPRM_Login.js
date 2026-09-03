@@ -175,6 +175,16 @@ function TPRMLogin() {
         try {
             const r = await apiPost("/api/tprm/login/Verifylogin",
                 { username: email, password: pass, remember });
+
+            /* An account inside a live remember window is signed in already -
+               the server set the cookie rather than sending a code. There is
+               no second step to show. */
+            if (r.next === "done") {
+                await refetch();
+                navigate("/Dashboard", { replace: true });
+                return;
+            }
+
             setMfaToken(r.mfaToken);
             setExpiresIn(Number(r.expiresIn) || 0);
             setCode("");
@@ -464,6 +474,13 @@ function TPRMLogin() {
                                     onChange={e => setRemember(e.target.checked)}
                                 />
                                 Remember for 14 days
+                                <span
+                                    className="tprm-login-remember-note"
+                                    title={"Skips the emailed code for 14 days on this account, "
+                                        + "in any browser on any machine - not just this one."}
+                                >
+                                    any browser
+                                </span>
                             </label>
                             <button
                                 type="button"

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { apiJson, apiPost, apiPut, apiUpload, apiDownload, API_BASE } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
@@ -368,6 +368,33 @@ const CLASSIFY_SORT = {
 const isFocus = (r, focusId) =>
     focusId != null && String(r.third_party_id) === String(focusId);
 
+/* After an upload, what you need next is below the fold - the preview of what
+   would import, or the table of what just did. Reading a "24 rows" summary and
+   then having to scroll for the rows is a small thing done on every upload, so
+   the page takes you there.
+
+   scroll-margin-top on the target clears the sticky header; scrollIntoView on
+   its own would tuck the first line underneath it. Honours the reduced motion
+   setting, where an animated jump is the thing being asked about. */
+function useRevealOnResult(ready) {
+    const ref = useRef(null);
+    useEffect(() => {
+        if (!ready || !ref.current) return;
+        const still = window.matchMedia
+            && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        // A frame's grace so the block has been laid out before we aim at it.
+        const t = setTimeout(() => {
+            if (ref.current) {
+                ref.current.scrollIntoView({
+                    behavior: still ? "auto" : "smooth", block: "start",
+                });
+            }
+        }, 60);
+        return () => clearTimeout(t);
+    }, [ready]);
+    return ref;
+}
+
 /** Scrolls the asked-for row into view once its register has actually loaded.
  *  Called before any early return, because a hook cannot sit behind one. */
 function useFocusRow(loaded, focusId) {
@@ -505,6 +532,7 @@ function StepUpload({ tenantId, onChanged, goto }) {
     const [preview, setPreview] = useState(null);
     const [busy, setBusy] = useState(false);
     const [showRejected, setShowRejected] = useState(true);
+    const resultRef = useRevealOnResult(preview);
 
     const upload = async (file) => {
         if (!file) return;
@@ -568,7 +596,8 @@ function StepUpload({ tenantId, onChanged, goto }) {
 
             {preview && (
                 <>
-                    <div className="tprm-grid k4" style={{ marginBottom: 18 }}>
+                    <div ref={resultRef} className="tprm-reveal tprm-grid k4"
+                        style={{ marginBottom: 18 }}>
                         {[
                             ["Rows read", preview.summary.read, "var(--tprm-navy)"],
                             ["Valid", preview.summary.valid, "var(--tprm-green)"],
@@ -919,6 +948,20 @@ function StepClassify({ tenantId, onChanged, goto, focusId }) {
 }
 
 /* ======================================================= 4. triage */
+/* What each distribution state means in the words someone would use, and who
+   is holding the ball. "zipped" told you what the tool did with a file; the
+   question on this screen is who has to move next. */
+const DIST_STATE = {
+    zipped:   { label: "Sent to client", tone: "blue",  next: "Client to forward" },
+    emailed:  { label: "Sent to vendor", tone: "blue",  next: "Vendor to respond" },
+    reminded: { label: "Reminder sent",  tone: "amber", next: "Vendor to respond" },
+    returned: { label: "Response received", tone: "green", next: "Dolluz to import" },
+    imported: { label: "Imported and scored", tone: "green", next: "Done" },
+};
+
+const distState = (r) => DIST_STATE[r.state]
+    || { label: "Not issued", tone: "grey", next: "Dolluz to issue" };
+
 const TRIAGE_STATE = (r) => (
     r.in_scope === null || r.in_scope === undefined ? "none"
         : Number(r.in_scope) === 1 ? "in" : "out");
@@ -1099,6 +1142,7 @@ function StepTiering({ tenantId, onChanged, goto }) {
     const [to, setTo] = useState("");
     const [result, setResult] = useState(null);
     const [ready, setReady] = useState(null);
+    const resultRef = useRevealOnResult(result);
 
     // Asked before the pack goes out, not after it comes back.
     useEffect(() => {
@@ -1235,7 +1279,8 @@ function StepTiering({ tenantId, onChanged, goto }) {
             {busy && <div className="tprm-loading">Working...</div>}
 
             {result && (
-                <div className="tprm-card flush" style={{ marginTop: 18 }}>
+                <div ref={resultRef} className="tprm-reveal tprm-card flush"
+                    style={{ marginTop: 18 }}>
                     <div className="tprm-card-head">
                         <div className="tprm-card-title">
                             {result.tiered} {result.tiered === 1 ? "supplier" : "suppliers"} tiered
@@ -1292,7 +1337,7 @@ function StepTiering({ tenantId, onChanged, goto }) {
 }
 
 /* ================================================= 6. distribution */
-function StepDistribute({ tenantId, onChanged }) {
+function StepDistribute({ tenantId, tenant, onChanged }) {
     const [rows, setRows] = useState(null);
     const [busy, setBusy] = useState(false);
     // Which row is mid-send, rather than one flag for the table: a single
@@ -1317,7 +1362,68 @@ function StepDistribute({ tenantId, onChanged }) {
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
     };
 
+    /* Downloading the pack and handing it over are two acts, and only the
+       second one is issuing. Keeping them apart is what lets the ZIP be
+       downloaded again next week without resetting anybody's clock. */
+    const markPackSent = async () => {
+        const waiting = rows.filter(r => !r.state || r.state === "ready").length;
+        if (!waiting) {
+            tprmAlert.info("Nothing left to mark",
+                "Every supplier here has already been issued.");
+            return;
+        }
+        const ok = await tprmAlert.confirm(
+            `Record the pack as sent to ${tenant ? tenant.tenant_name : "the client"}?`,
+            `${waiting} suppliers still waiting will be marked issued, with the client `
+            + `forwarding. Anything already emailed or reminded keeps the state it has.`,
+            "Yes, it has gone");
+        if (!ok) return;
+        setBusy(true);
+        try {
+            const r = await apiPost(`/api/tprm/distribution/${tenantId}/mark-issued`,
+                { channel: "zip" });
+            tprmAlert.success(`${r.marked} marked as issued`,
+                r.skipped.length ? `${r.skipped.length} already had a state and were left alone.`
+                    : undefined);
+            await load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
+    };
+
+    /* One supplier, sent by hand from somebody's own mailbox. Recorded as
+       'manual' rather than 'email' so the trail does not claim dTprm delivered
+       something it never touched. */
+    const markOneSent = async (r) => {
+        const ok = await tprmAlert.confirm(
+            `Record ${r.third_party_name} as sent by hand?`,
+            "Use this when you took the workbook out of the ZIP and emailed it "
+            + "yourself. dTprm did not send it, so it is recorded as sent manually.",
+            "Yes, I sent it");
+        if (!ok) return;
+        setSendingId(r.assessment_id);
+        try {
+            await apiPost(`/api/tprm/distribution/${tenantId}/mark-issued`,
+                { channel: "manual", assessmentIds: [r.assessment_id] });
+            tprmAlert.success("Recorded as sent by hand");
+            await load(); onChanged();
+        } catch (e) { tprmAlert.apiError(e); } finally { setSendingId(null); }
+    };
+
+    /* Confirmed the same way sending is. A reminder is mail leaving the
+       building to somebody outside the company, and the fact that it is the
+       second one rather than the first does not make it less so - chasing a
+       supplier who answered yesterday is its own small damage. The dialog
+       names the address and when they were issued, which is the pair of facts
+       that decides whether the reminder is fair. */
     const remind = async (a) => {
+        const to = a.recipient || a.security_contact || "the security contact on file";
+        const when = a.issued_time ? String(a.issued_time).slice(0, 10) : null;
+        const ok = await tprmAlert.confirm(
+            `Send ${a.third_party_name} a reminder now?`,
+            when ? `It goes to ${to}. They were issued on ${when}.`
+                : `It goes to ${to}.`,
+            "Yes, remind them");
+        if (!ok) return;
+
         setRemindingId(a.assessment_id);
         try {
             await apiPost(`/api/tprm/distribution/assessments/${a.assessment_id}/remind`, {});
@@ -1330,13 +1436,19 @@ function StepDistribute({ tenantId, onChanged }) {
        of them. Outline envelope looks, solid plane acts - and the plane never
        opens the preview, because a button that sometimes sends and sometimes
        shows is a button people stop trusting. */
+    /* Once a supplier has been issued, the next mail it would receive is a
+       reminder, so that is what the preview has to render. Showing the first
+       time questionnaire against a row already marked emailed is showing an
+       email nobody is going to send. */
+    const alreadyIssued = (r) => !!r.state && r.state !== "ready";
+
     const previewOne = (r) =>
-        setMail({ ids: [r.assessment_id], previewOnly: true });
+        setMail({ ids: [r.assessment_id], previewOnly: true, reminder: alreadyIssued(r) });
 
     const sendOne = async (r) => {
         const ok = await tprmAlert.confirm(
             `Email ${r.third_party_name} their questionnaire now?`,
-            `It goes to ${r.recipient || "the security contact on file"}.`,
+            `It goes to ${r.recipient || r.security_contact || "the security contact on file"}.`,
             "Yes, send it");
         if (!ok) return;
         setSendingId(r.assessment_id);
@@ -1350,9 +1462,14 @@ function StepDistribute({ tenantId, onChanged }) {
 
     /* Why a row cannot be mailed, in the words the modal uses. Returned rather
        than hidden: an icon that vanishes on some rows makes the column jump. */
+    /* recipient is the address a questionnaire WAS sent to, written at issue
+       time - so gating the send on it asked "have you already sent this?" and
+       disabled the button for everything that had not been sent yet. The test
+       is whether there is an address on file to send to, which is
+       security_contact, the same field the Contact column shows. */
     const blockedReason = (r) =>
         !r.tier ? "Not tiered yet - complete the Tiering step first"
-            : !r.recipient ? "No security contact on file for this supplier"
+            : !r.security_contact ? "No security contact on file for this supplier"
                 : null;
 
     if (!rows) return <div className="tprm-loading">Loading...</div>;
@@ -1392,9 +1509,18 @@ function StepDistribute({ tenantId, onChanged }) {
                         One ZIP of every workbook. The client forwards each file to its own
                         supplier, which keeps us out of the supplier relationship.
                     </p>
-                    <button className="tprm-btn primary" onClick={zip} disabled={busy}>
-                        Download ZIP
-                    </button>
+                    <div className="tprm-route-actions">
+                        <button className="tprm-btn primary" onClick={zip} disabled={busy}>
+                            Download ZIP
+                        </button>
+                        <button className="tprm-btn" onClick={markPackSent} disabled={busy}>
+                            Mark pack as sent
+                        </button>
+                    </div>
+                    <div className="tprm-hint" style={{ marginTop: 10 }}>
+                        Downloading changes nothing - take the pack as often as you like. Mark it
+                        sent once it has actually gone to the client.
+                    </div>
                 </div>
                 <div className="tprm-card tprm-route" style={{ borderTopColor: "var(--tprm-purple)" }}>
                     <div className="tprm-route-title">Route B. We email each supplier</div>
@@ -1417,7 +1543,8 @@ function StepDistribute({ tenantId, onChanged }) {
                     <thead>
                         <tr>
                             <th>Ref</th><th>Supplier</th><th>Tier</th><th>Contact</th>
-                            <th>Channel</th><th>State</th><th>Issued</th><th></th>
+                            <th>Status</th><th>Issued</th><th>Returned</th>
+                            <th>Next action with</th><th className="tprm-col-actions" />
                         </tr>
                     </thead>
                     <tbody>
@@ -1434,21 +1561,36 @@ function StepDistribute({ tenantId, onChanged }) {
                                 <td style={{ fontSize: 12, color: "var(--tprm-muted)" }}>
                                     {r.security_contact || <i>none on file</i>}
                                 </td>
-                                <td>{r.channel || "-"}</td>
                                 <td>
-                                    <span className={"tprm-chip " + (
-                                        r.state === "imported" ? "green"
-                                            : r.state ? "blue" : "grey")}>
-                                        {r.state || "not issued"}
+                                    <span className={"tprm-chip " + distState(r).tone}>
+                                        {distState(r).label}
                                     </span>
                                 </td>
-                                <td style={{ fontSize: 12 }}>
+                                <td className="tprm-nowrap" style={{ fontSize: 12 }}>
                                     {r.issued_time ? String(r.issued_time).slice(0, 10) : "-"}
                                 </td>
-                                {/* Same three actions, same order, on every row.
-                                    Disabled rather than removed when a row is not
-                                    sendable, so the icons never move about. */}
-                                <td>
+                                {/* A returned date is the one that ends the chasing, so it
+                                    is green where it exists and plainly empty where it
+                                    does not. */}
+                                <td className="tprm-nowrap"
+                                    style={{ fontSize: 12,
+                                        color: r.returned_time ? "var(--tprm-green)" : "var(--tprm-faint)",
+                                        fontWeight: r.returned_time ? 600 : 400 }}>
+                                    {r.returned_time ? String(r.returned_time).slice(0, 10) : "-"}
+                                </td>
+                                {/* Whose move it is. The status says what happened; this
+                                    says who is holding it up, which is the thing you are
+                                    actually scanning the table for. */}
+                                <td className="tprm-nowrap" style={{ fontSize: 12.5, fontWeight: 600,
+                                    color: distState(r).next === "Done" ? "var(--tprm-green)"
+                                        : distState(r).next.startsWith("Dolluz") ? "var(--tprm-red)"
+                                            : "var(--tprm-muted)" }}>
+                                    {distState(r).next}
+                                </td>
+                                {/* Same actions, same order, on every row. Disabled rather
+                                    than removed when a row is not sendable, so the icons
+                                    never move about. */}
+                                <td className="tprm-col-actions">
                                     <div className="tprm-rowacts">
                                         <button
                                             className="tprm-iconbtn"
@@ -1461,18 +1603,37 @@ function StepDistribute({ tenantId, onChanged }) {
                                         <button
                                             className={"tprm-iconbtn solid"
                                                 + (sendingId === r.assessment_id ? " loading" : "")}
-                                            title={blockedReason(r) || `Send ${r.third_party_name} their questionnaire`}
+                                            title={blockedReason(r)
+                                                || (alreadyIssued(r)
+                                                    ? "Already issued - use Remind to chase it"
+                                                    : `Send ${r.third_party_name} their questionnaire`)}
                                             aria-label="Send the email"
                                             disabled={busy || sendingId != null || remindingId != null
-                                                || !!blockedReason(r)}
+                                                || alreadyIssued(r) || !!blockedReason(r)}
                                             onClick={() => sendOne(r)}
                                         >
                                             <FaPaperPlane />
                                         </button>
+                                        {/* Sent from your own mailbox rather than by dTprm.
+                                            Offered only while the row is still waiting -
+                                            once it has a state, that state is the record. */}
+                                        {!alreadyIssued(r) && (
+                                            <button
+                                                className="tprm-btn sm"
+                                                disabled={busy || sendingId != null || remindingId != null
+                                                    || !!blockedReason(r)}
+                                                title={blockedReason(r)
+                                                    || "I sent this one myself, outside dTprm"}
+                                                onClick={() => markOneSent(r)}
+                                            >
+                                                Mark sent
+                                            </button>
+                                        )}
                                         <button
                                             className={"tprm-btn sm"
                                                 + (remindingId === r.assessment_id ? " loading" : "")}
-                                            disabled={!r.recipient || r.state === "imported" || !r.state
+                                            disabled={!(r.recipient || r.security_contact)
+                                                || r.state === "imported" || !r.state
                                                 || sendingId != null || remindingId != null}
                                             title={!r.state ? "Not issued yet" : undefined}
                                             onClick={() => remind(r)}
@@ -1484,7 +1645,7 @@ function StepDistribute({ tenantId, onChanged }) {
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={8} className="tprm-empty">
+                            <tr><td colSpan={9} className="tprm-empty">
                                 Nothing is tiered yet. Complete the Tiering step first.
                             </td></tr>
                         )}
@@ -1501,6 +1662,7 @@ function StepDistribute({ tenantId, onChanged }) {
                 idKey="assessmentId"
                 rosterKey="assessmentIds"
                 previewOnly={!!(mail && mail.previewOnly)}
+                extraPreviewBody={mail && mail.reminder ? { reminder: true } : undefined}
                 onClose={() => setMail(null)}
                 onSend={async (checkedIds) => {
                     const res = await apiPost(`/api/tprm/distribution/${tenantId}/issue-email`,
@@ -1522,10 +1684,12 @@ function StepDistribute({ tenantId, onChanged }) {
 
 /* ============================================ 7. import responses */
 function StepImport({ onChanged }) {
+    const navigate = useNavigate();
     const fileRef = useRef(null);
     const [preview, setPreview] = useState(null);
     const [pendingFile, setPendingFile] = useState(null);
     const [busy, setBusy] = useState(false);
+    const resultRef = useRevealOnResult(preview);
 
     const doPreview = async (file) => {
         if (!file) return;
@@ -1540,13 +1704,37 @@ function StepImport({ onChanged }) {
         setBusy(true);
         try {
             const r = await apiUpload("/api/tprm/distribution/import/commit", pendingFile);
-            tprmAlert.success(
-                `${r.imported} answers imported`,
-                `${r.vendorAsserted} await your acceptance. ${r.autoNotEvidenced} dropped to `
-                + `Not Evidenced automatically for having no evidence attached.`);
             setPreview(null); setPendingFile(null);
             if (fileRef.current) fileRef.current.value = "";
             onChanged();
+
+            /* Importing is the end of the pipeline, and what happens next is
+               assessing - accepting or overriding each position. Offering the
+               way there beats leaving someone on an empty drop zone wondering
+               where their work went. The numbers are in the prompt, because
+               how much dropped is the thing worth reading before moving on. */
+            const done = (r.files || []).filter(f => f.status === "imported");
+            const summary = `${r.vendorAsserted} await your acceptance. `
+                + `${r.autoNotEvidenced} dropped to Not Evidenced for having no `
+                + `evidence attached.`;
+
+            if (done.length === 1) {
+                const go = await tprmAlert.confirm(
+                    `${r.imported} answers imported`,
+                    `${summary} Open the assessment now?`,
+                    "Open the assessment");
+                if (go) navigate(`/Assessments/${done[0].assessmentId}`);
+                return;
+            }
+            if (done.length > 1) {
+                const go = await tprmAlert.confirm(
+                    `${r.imported} answers imported across ${done.length} suppliers`,
+                    `${summary} Go to assessments?`,
+                    "Go to assessments");
+                if (go) navigate("/Assessments");
+                return;
+            }
+            tprmAlert.success(`${r.imported} answers imported`, summary);
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
     };
 
@@ -1584,7 +1772,10 @@ function StepImport({ onChanged }) {
 
             {preview && (
                 <>
-                    <div className="tprm-page-actions" style={{ marginLeft: 0, marginBottom: 14 }}>
+                    {/* The confirming action sits on the right, where every other
+                        one on this pipeline does. */}
+                    <div ref={resultRef} className="tprm-reveal tprm-page-actions"
+                        style={{ justifyContent: "flex-end", marginBottom: 14 }}>
                         <button
                             className="tprm-btn gold" onClick={commit}
                             disabled={busy || !preview.results.some(r => r.status === "ready")}

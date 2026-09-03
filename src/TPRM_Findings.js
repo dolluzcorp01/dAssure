@@ -9,6 +9,19 @@ import TPRMSelect from "./TPRM_Select";
 
 const SEV_CLASS = { Critical: "red", High: "amber", Medium: "blue", Low: "grey" };
 
+/* Status carried one colour for everything that was not closed, so an item
+   nobody had touched looked exactly like one being actively worked. These are
+   different situations and the colour is what you scan, not the word:
+   red is untouched, amber is moving, blue is waiting on us, green is done and
+   purple is a decision not to fix. */
+const STATUS_CLASS = {
+    open: "red",
+    in_progress: "amber",
+    evidence_under_review: "blue",
+    closed: "green",
+    accepted: "purple",
+};
+
 function TPRMFindings() {
     const { tenantId, hasPerm } = useAccess();
     const [rows, setRows] = useState(null);
@@ -55,6 +68,21 @@ function TPRMFindings() {
     if (!rows) return <div className="tprm-loading">Loading findings...</div>;
 
     const breached = rows.filter(r => Number(r.breached) === 1).length;
+
+    /* What a person opens this page to find out, before reading a single row:
+       what is urgent, what is late, and what has been signed off rather than
+       fixed. Counted over everything loaded, so the numbers do not move when
+       the filters do. */
+    const openish = r => ["open", "in_progress", "evidence_under_review"].includes(r.status);
+    const cards = [
+        ["Critical open", rows.filter(r => r.severity === "Critical" && openish(r)).length,
+            "var(--tprm-red)"],
+        ["High open", rows.filter(r => r.severity === "High" && openish(r)).length,
+            "var(--tprm-amber)"],
+        ["Past due", breached, "var(--tprm-red)"],
+        ["Risk accepted", rows.filter(r => r.status === "accepted").length,
+            "var(--tprm-purple)"],
+    ];
 
     /* One column spec, both outputs. Excel and PDF differ only in how wide a
        column may get, never in what is in it, which is why the two files look
@@ -146,7 +174,30 @@ function TPRMFindings() {
                 </div>
             </div>
 
+            <div className="tprm-grid k4" style={{ marginBottom: 18 }}>
+                {cards.map(([label, n, colour]) => (
+                    <div className="tprm-card tprm-kpi" key={label} style={{ borderTopColor: colour }}>
+                        <div className="tprm-kpi-value" style={{ color: n ? colour : "var(--tprm-faint)" }}>
+                            {n}
+                        </div>
+                        <div className="tprm-kpi-sub">{label}</div>
+                    </div>
+                ))}
+            </div>
+
             <div className="tprm-card flush">
+                {/* How many rows the filters are actually showing. A table with
+                    no count leaves you counting, and the answer changes every
+                    time the filter does. */}
+                <div className="tprm-card-head">
+                    <div className="tprm-card-title">
+                        {rows.length} {rows.length === 1 ? "finding" : "findings"}
+                    </div>
+                    <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--tprm-muted)" }}>
+                        {status === "all" ? "All statuses" : "Open and in progress"}
+                        {severity ? ` · ${severity}` : " · all severities"}
+                    </div>
+                </div>
                 <table className="tprm-table">
                     <thead>
                         <tr>
@@ -163,13 +214,12 @@ function TPRMFindings() {
                                 <td style={{ maxWidth: 340, fontSize: 12.5 }}>{f.title}</td>
                                 <td><span className={"tprm-chip " + SEV_CLASS[f.severity]}>{f.severity}</span></td>
                                 <td>
-                                    <span className={"tprm-chip " + (
-                                        f.status === "closed" ? "green"
-                                            : f.status === "accepted" ? "grey" : "blue")}>
+                                    <span className={"tprm-chip "
+                                        + (STATUS_CLASS[f.status] || "grey")}>
                                         {String(f.status).replace(/_/g, " ")}
                                     </span>
                                 </td>
-                                <td style={{ fontSize: 12 }}>{String(f.due_at).slice(0, 10)}</td>
+                                <td className="tprm-nowrap" style={{ fontSize: 12 }}>{String(f.due_at).slice(0, 10)}</td>
                                 <td
                                     className="num"
                                     style={{

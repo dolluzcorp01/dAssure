@@ -100,12 +100,12 @@ function TPRMUsersAndRoles() {
                                     fresh code at every sign-in, so there is nothing to enrol and
                                     nobody is ever "pending". What is actually worth knowing is
                                     whether a granted person has ever used the access. */}
-                                <td style={{ fontSize: 12 }}>
+                                <td className="tprm-nowrap" style={{ fontSize: 12 }}>
                                     {m.last_login
                                         ? String(m.last_login).slice(0, 10)
                                         : <span className="tprm-chip amber">never</span>}
                                 </td>
-                                <td style={{ fontSize: 12 }}>{String(m.granted_time).slice(0, 10)}</td>
+                                <td className="tprm-nowrap" style={{ fontSize: 12 }}>{String(m.granted_time).slice(0, 10)}</td>
                                 <td>
                                     {Number(m.rank_value) <= myRank
                                         && !(user && String(m.emp_id) === String(user.emp_id)) && (

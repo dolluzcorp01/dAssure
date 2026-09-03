@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiJson, apiPost, apiPut, apiUpload, apiDownload } from "./utils/api";
+import { apiJson, apiPost, apiPut, apiUpload, apiDownload, apiDelete } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_AssessmentDetail.css";
@@ -15,6 +15,14 @@ const POS_CLASS = {
     "Not Evidenced": "faint", "Not Applicable": "na",
 };
 
+/** Bytes as something a person can judge at a glance. */
+const kb = (n) => {
+    const b = Number(n) || 0;
+    if (b < 1024) return b + " B";
+    if (b < 1024 * 1024) return Math.round(b / 1024) + " KB";
+    return (b / 1024 / 1024).toFixed(1) + " MB";
+};
+
 function TPRMAssessmentDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -22,6 +30,9 @@ function TPRMAssessmentDetail() {
     const [d, setD] = useState(null);
     const [err, setErr] = useState(null);
     const [gate, setGate] = useState(null);
+    // Which control's evidence list is open, and what has been fetched so far.
+    const [openEvidence, setOpenEvidence] = useState(null);
+    const [evidence, setEvidence] = useState({});
     const [draft, setDraft] = useState("");
     const [busy, setBusy] = useState(false);
     // Who can be assigned on this client, and what is currently picked.
@@ -123,7 +134,18 @@ function TPRMAssessmentDetail() {
         run(() => apiPost(`/api/tprm/assessments/${id}/accept-area`, { domainCode }));
 
     const raiseFindings = () =>
-        run(() => apiPost(`/api/tprm/assessments/${id}/raise-findings`, {}), "Findings raised");
+        run(() => apiPost(`/api/tprm/assessments/${id}/raise-findings`, {}), "Findings raised")
+            .then(async () => {
+                // They are tracked on Findings from here - due dates, severity,
+                // remediation - so offer the way there rather than leaving
+                // someone to find it.
+                const go = await tprmAlert.confirm(
+                    "Findings raised",
+                    "They are tracked on the Findings screen from here, with a due date "
+                    + "set from the severity. Go there now?",
+                    "Open findings");
+                if (go) navigate("/Findings");
+            });
 
     const checkGate = async () => {
         try { setGate(await apiJson(`/api/tprm/assessments/${id}/submit-check`)); }
@@ -132,7 +154,13 @@ function TPRMAssessmentDetail() {
 
     const submit = () =>
         run(() => apiPost(`/api/tprm/assessments/${id}/submit`, {}), "Submitted for review")
-            .then(() => setGate(null));
+            .then(() => {
+                setGate(null);
+                // It is the reviewer's case now, so the assessor goes back to
+                // the queue rather than sitting on a page they can no longer
+                // change.
+                navigate("/Assessments");
+            });
 
     const approve = async () => {
         const ok = await tprmAlert.confirm(
@@ -157,8 +185,52 @@ function TPRMAssessmentDetail() {
 
     const uploadEvidence = async (responseId, file) => {
         if (!file) return;
-        run(() => apiUpload(`/api/tprm/evidence/responses/${responseId}/upload`, file),
+        await run(() => apiUpload(`/api/tprm/evidence/responses/${responseId}/upload`, file),
             "Evidence attached");
+        // If the list is open behind the upload, refresh it rather than leave
+        // it showing what was there a moment ago.
+        if (openEvidence === responseId) loadEvidence(responseId, true);
+    };
+
+    /* The list is fetched per control, only when someone asks to see it. A
+       register of thirty controls does not need thirty file listings loaded
+       to render a count. */
+    const loadEvidence = async (responseId, force) => {
+        if (!force && evidence[responseId]) return;
+        try {
+            const files = await apiJson(`/api/tprm/evidence/responses/${responseId}/list`);
+            setEvidence(prev => ({ ...prev, [responseId]: files }));
+        } catch (e) { tprmAlert.apiError(e); }
+    };
+
+    const toggleEvidence = (responseId) => {
+        setOpenEvidence(prev => {
+            const next = prev === responseId ? null : responseId;
+            if (next) loadEvidence(next);
+            return next;
+        });
+    };
+
+    const downloadEvidence = (f) =>
+        apiDownload(`/api/tprm/evidence/${f.evidence_id}/download`, f.original_name)
+            .catch(tprmAlert.apiError);
+
+    /* Removing evidence changes what a control is scored on, so it is
+       confirmed and it names the file - "are you sure" over an unnamed thing
+       is not a question anyone can answer. */
+    const removeEvidence = async (responseId, f) => {
+        const ok = await tprmAlert.confirm(
+            `Remove ${f.original_name}?`,
+            "The file is deleted, not hidden. If this control was scored on it, "
+            + "score it again once the right evidence is attached.",
+            "Yes, remove it");
+        if (!ok) return;
+        try {
+            await apiDelete(`/api/tprm/evidence/${f.evidence_id}`);
+            tprmAlert.success("Evidence removed");
+            await loadEvidence(responseId, true);
+            load();
+        } catch (e) { tprmAlert.apiError(e); }
     };
 
     return (
@@ -457,11 +529,23 @@ function TPRMAssessmentDetail() {
                                                 </div>
 
                                                 <div className="tprm-q-foot">
+                                                    {/* The count was a dead label: it said a file
+                                                        existed and gave you no way to see which,
+                                                        check it was the right one, or take it back
+                                                        off. It opens the list now. */}
                                                     {r && Number(r.evidence_count) > 0
-                                                        ? <span className="tprm-chip green">
-                                                            {r.evidence_count} evidence file
-                                                            {Number(r.evidence_count) > 1 ? "s" : ""}
-                                                        </span>
+                                                        ? (
+                                                            <button
+                                                                className={"tprm-chip green tprm-chip-btn"
+                                                                    + (openEvidence === r.response_id ? " on" : "")}
+                                                                onClick={() => toggleEvidence(r.response_id)}
+                                                                title="See what is attached"
+                                                            >
+                                                                {r.evidence_count} evidence file
+                                                                {Number(r.evidence_count) > 1 ? "s" : ""}
+                                                                {openEvidence === r.response_id ? " ▴" : " ▾"}
+                                                            </button>
+                                                        )
                                                         : <span className="tprm-chip grey">no evidence</span>}
                                                     {asserted && (
                                                         <span className="tprm-chip amber">supplier assertion</span>
@@ -477,6 +561,54 @@ function TPRMAssessmentDetail() {
                                                         </label>
                                                     )}
                                                 </div>
+
+                                                {r && openEvidence === r.response_id && (
+                                                    <div className="tprm-ev">
+                                                        {!evidence[r.response_id] && (
+                                                            <div className="tprm-ev-empty">Reading...</div>
+                                                        )}
+                                                        {(evidence[r.response_id] || []).map(f => (
+                                                            <div className="tprm-ev-row" key={f.evidence_id}>
+                                                                <div className="tprm-ev-main">
+                                                                    <div className="tprm-ev-name">
+                                                                        {f.original_name}
+                                                                        {Number(f.expired) === 1 && (
+                                                                            <span className="tprm-chip red"
+                                                                                style={{ marginLeft: 8 }}>
+                                                                                expired
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="tprm-ev-meta">
+                                                                        {kb(f.byte_size)} &middot;{" "}
+                                                                        {f.uploaded_by_name} &middot;{" "}
+                                                                        {String(f.uploaded_time).slice(0, 10)}
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    className="tprm-btn sm"
+                                                                    onClick={() => downloadEvidence(f)}
+                                                                >
+                                                                    Open
+                                                                </button>
+                                                                {!frozen && hasPerm("evidence.manage") && (
+                                                                    <button
+                                                                        className="tprm-btn sm danger"
+                                                                        onClick={() => removeEvidence(r.response_id, f)}
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                        {evidence[r.response_id]
+                                                            && evidence[r.response_id].length === 0 && (
+                                                            <div className="tprm-ev-empty">
+                                                                Nothing attached to this control.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -509,7 +641,9 @@ function TPRMAssessmentDetail() {
                                     )}
                                     <div className="tprm-msg-body">{m.body}</div>
                                     <div className="tprm-msg-when">
-                                        {String(m.created_time).slice(0, 16).replace("T", " ")}
+                                        <span className="tprm-nowrap">
+                                            {String(m.created_time).slice(0, 16).replace("T", " ")}
+                                        </span>
                                     </div>
                                 </div>
                             ))}
@@ -553,7 +687,10 @@ function TPRMAssessmentDetail() {
                                     </div>
                                     <div className="tprm-finding-title">{f.title}</div>
                                     <div className="tprm-finding-due">
-                                        {f.control_ref} &nbsp;|&nbsp; due {String(f.due_at).slice(0, 10)}
+                                        {f.control_ref} &nbsp;|&nbsp;{" "}
+                                        <span className="tprm-nowrap">
+                                            due {String(f.due_at).slice(0, 10)}
+                                        </span>
                                     </div>
                                 </div>
                             ))}

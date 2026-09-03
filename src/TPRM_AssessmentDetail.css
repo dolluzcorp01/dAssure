@@ -242,3 +242,36 @@
     .tprm-assign-grid { grid-template-columns: 1fr; }
     .tprm-assign-save { padding-top: 0; }
 }
+
+/* ------------------------------------------------------ evidence list */
+/* Opened from the count, which used to be a label that told you a file
+   existed and nothing else. */
+.tprm-chip-btn { cursor: pointer; border: 1px solid transparent; font: inherit; font-size: 12.5px; }
+.tprm-chip-btn.on { box-shadow: 0 0 0 3px rgba(27, 122, 90, .22); }
+
+.tprm-ev {
+    margin: 10px 0 2px;
+    border: 1px solid var(--tprm-line);
+    border-radius: 8px;
+    background: var(--tprm-wash);
+    overflow: hidden;
+}
+
+.tprm-ev-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--tprm-line-soft);
+}
+
+.tprm-ev-row:last-child { border-bottom: none; }
+
+.tprm-ev-main { flex: 1; min-width: 0; }
+.tprm-ev-name { font-size: 13px; font-weight: 600; word-break: break-all; }
+.tprm-ev-meta { font-size: 11.5px; color: var(--tprm-muted); margin-top: 2px; }
+.tprm-ev-empty { padding: 12px; font-size: 12.5px; color: var(--tprm-faint); }
+
+/* A date is one value. It wraps only if nothing says otherwise, and half a
+   date on each of two lines is not a date. */
+.tprm-ev-meta { white-space: nowrap; }

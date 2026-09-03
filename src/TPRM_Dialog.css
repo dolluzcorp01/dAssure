@@ -101,7 +101,17 @@
 .tprm-dlg-icon.tone-info    { background: #F2F7FD; color: var(--tprm-blue); }
 
 .tprm-dlg-heading { flex: 1; min-width: 0; }
-.tprm-dlg-title { font-size: 17px; font-weight: 700; line-height: 1.35; }
+/* A title can carry a file name, and a file name has no spaces to break at,
+   so it has to be told it may break anywhere rather than pushing the dialog
+   wider than the screen. */
+.tprm-dlg-title {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 0;
+}
 .tprm-dlg-text { font-size: 13.5px; color: var(--tprm-muted); margin-top: 6px; line-height: 1.6; }
 
 .tprm-dlg-details {

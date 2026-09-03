@@ -183,6 +183,34 @@ function requireTenant(req, res) {
  * With no client on the request, holding it anywhere is enough (used by list
  * endpoints that filter by membership themselves).
  */
+/**
+ * The same gate as requirePerm, called from inside a handler once the real
+ * tenant is known.
+ *
+ * requirePerm has to run as middleware, before the handler has loaded
+ * anything, so it can only use the tenant tenantScope guessed - and tenantScope
+ * guesses from the first path segment. On a route like DELETE /evidence/57
+ * that segment is the evidence id, so the check ran against "tenant 57" and
+ * refused anyone who did not happen to hold a grant on a client whose id
+ * matched the record's. Worse, it passed when the two coincided.
+ *
+ * Membership was never actually at risk: every one of those handlers sets
+ * req.tenantId from the row it loaded and calls requireTenant, which re-checks
+ * properly. It is the permission half that was asking about the wrong client.
+ * Use this after requireTenant, where tenantId means what it says.
+ */
+function permitted(req, res, permKey) {
+    const grants = req.grants || {};
+    if (req.setupMode && SETUP_PERMS.has(permKey)) return true;
+    const t = grants[req.tenantId];
+    if (t && t.perms.has(permKey)) return true;
+    res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Your role on this client does not allow: ${permKey}`,
+    });
+    return false;
+}
+
 function requirePerm(permKey) {
     return (req, res, next) => {
         const grants = req.grants || {};
@@ -210,6 +238,6 @@ function requirePerm(permKey) {
 const memberTenantIds = (req) => Object.keys(req.grants || {}).map(Number);
 
 module.exports = {
-    audit, grantsFor, tenantScope, requireTenant, requirePerm, memberTenantIds,
+    audit, grantsFor, tenantScope, requireTenant, requirePerm, permitted, memberTenantIds,
     inSetupMode, systemHasNoGrants, SETUP_PERMS,
 };

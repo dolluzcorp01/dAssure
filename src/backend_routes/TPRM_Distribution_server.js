@@ -481,12 +481,16 @@ router.get("/:tenantId/issue-zip", requirePerm('assessment.perform'), async (req
             zip.append(Buffer.from(wb), {
                 name: `${a.third_party_name.replace(/\W+/g, '_')}_${a.ref_code}.xlsx`,
             });
-            await markIssued(req, a, 'zip', null, null);
         }
 
+        /* Building the file changes nothing. Downloading it used to mark every
+           supplier issued, which meant a second download reset issued_time and
+           dragged rows that had reached emailed or reminded back to zipped.
+           Saying a questionnaire went out is a separate act, and it is
+           /mark-issued below. */
         await audit(req, {
             action: 'questionnaire.zip_downloaded', entity: 'tenant', entityId: req.tenantId,
-            after: { count: list.length }, tenantId: req.tenantId,
+            after: { count: list.length, marked: false }, tenantId: req.tenantId,
         });
         zip.finalize();
     } catch (e) {
@@ -558,6 +562,95 @@ router.post("/:tenantId/issue-email", requirePerm('assessment.perform'), async (
     } catch (e) {
         logError("issue-email", e, req);
         res.status(500).json({ error: "Could not queue the questionnaires" });
+    }
+});
+
+/* Issuing by hand.
+ *
+ * Downloading a file is not the same act as issuing a questionnaire, and this
+ * is the difference: the download builds bytes, this records that somebody
+ * sent them. Two channels reach it - 'zip' when the pack went to the client to
+ * forward, 'manual' when a workbook was pulled out of the ZIP and mailed
+ * personally - and neither can be inferred from a click on a download button.
+ *
+ * A row already past 'ready' is never touched. That is the whole point: the
+ * previous behaviour reset issued_time and knocked 'reminded' back to
+ * 'zipped', losing how long the supplier had actually held it. Rows that are
+ * skipped are named in the reply rather than silently ignored, so marking a
+ * whole population is honest about what it did and did not change. */
+router.post("/:tenantId/mark-issued", requirePerm('assessment.perform'), async (req, res) => {
+    try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
+        const channel = String(req.body.channel || '');
+        if (!['zip', 'manual'].includes(channel)) {
+            return res.status(400).json({
+                error: "BAD_CHANNEL",
+                message: "Channel must be 'zip' for a pack sent to the client, "
+                    + "or 'manual' for a workbook you sent yourself.",
+            });
+        }
+        const ids = Array.isArray(req.body.assessmentIds)
+            ? req.body.assessmentIds.map(Number).filter(Boolean) : [];
+
+        const [list] = await db.query(
+            `SELECT a.assessment_id, tp.third_party_name, tp.security_contact,
+                    d.state, d.channel AS prev_channel
+               FROM assessment a
+               JOIN third_party tp ON tp.third_party_id = a.third_party_id
+               LEFT JOIN distribution d ON d.assessment_id = a.assessment_id
+              WHERE a.tenant_id = ? AND a.tier IS NOT NULL
+                ${ids.length ? `AND a.assessment_id IN (${ids.map(() => '?').join(',')})` : ''}
+              ORDER BY tp.third_party_name`,
+            ids.length ? [req.tenantId, ...ids] : [req.tenantId]);
+
+        if (!list.length) {
+            return res.status(400).json({
+                error: "NOTHING_TIERED",
+                message: "No tiered suppliers to mark. Complete the Tiering step first.",
+            });
+        }
+
+        const marked = [];
+        const skipped = [];
+        for (const a of list) {
+            // Anything already issued keeps the history it has.
+            if (a.state && a.state !== 'ready') {
+                skipped.push({ supplier: a.third_party_name, state: a.state });
+                continue;
+            }
+            await db.query(
+                `INSERT INTO distribution
+                   (assessment_id, channel, state, recipient, issued_time, issued_by)
+                 VALUES (?,?,?,?,NOW(3),?)
+                 ON DUPLICATE KEY UPDATE
+                   channel = VALUES(channel), state = VALUES(state),
+                   recipient = VALUES(recipient), issued_time = NOW(3),
+                   issued_by = VALUES(issued_by)`,
+                [
+                    a.assessment_id, channel,
+                    channel === 'zip' ? 'zipped' : 'emailed',
+                    // A manual send went to the address on file as far as we
+                    // know; a pack handed to the client went to nobody we can
+                    // name, because the client chooses who forwards it.
+                    channel === 'manual' ? (a.security_contact || null) : null,
+                    req.emp_id,
+                ]);
+            marked.push(a.third_party_name);
+        }
+
+        await audit(req, {
+            action: channel === 'zip' ? 'questionnaire.pack_handed_over'
+                : 'questionnaire.marked_sent',
+            entity: 'tenant', entityId: req.tenantId,
+            after: { channel, marked: marked.length, skipped: skipped.length },
+            tenantId: req.tenantId,
+        });
+        res.json({ marked: marked.length, skipped });
+    } catch (e) {
+        logError("mark-issued", e, req);
+        res.status(500).json({ error: "Could not record that" });
     }
 });
 

@@ -770,3 +770,27 @@
 .tprm-landing-reach .tprm-chip-btn { cursor: pointer; font: inherit; font-size: 11.5px; }
 .tprm-landing-reach .tprm-chip-btn:hover { filter: brightness(1.12); }
 .tprm-landing-reach .tprm-chip-btn:focus-visible { outline: 2px solid var(--tprm-ink); outline-offset: 2px; }
+
+/* The checkbox says "remember", which usually means this browser. Here it does
+   not: the window is held against the account, so the next browser is let in
+   too. The qualifier is small but it is on screen, because someone ticking
+   this should not have to read a migration to find that out. */
+.tprm-login-remember-note {
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: #F1F4F7;
+    color: var(--tprm-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    cursor: help;
+}
+
+/* A date, a reference, a count - one value that means nothing broken in half. */
+.tprm-nowrap { white-space: nowrap; }
+
+/* The target of an auto scroll after an upload. scrollIntoView aims at the top
+   of the element, which on this layout is underneath the sticky top bar - the
+   margin is what keeps the first line visible. */
+.tprm-reveal { scroll-margin-top: 88px; }

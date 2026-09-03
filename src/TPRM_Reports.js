@@ -125,7 +125,7 @@ function TPRMReports() {
                                 <td>{r.third_party_name}</td>
                                 <td style={{ fontSize: 12, color: "var(--tprm-muted)" }}>{r.recipients}</td>
                                 <td style={{ fontSize: 12 }}>{r.issued_by_name}</td>
-                                <td style={{ fontSize: 12 }}>
+                                <td className="tprm-nowrap" style={{ fontSize: 12 }}>
                                     {String(r.issued_time).slice(0, 16).replace("T", " ")}
                                 </td>
                                 <td

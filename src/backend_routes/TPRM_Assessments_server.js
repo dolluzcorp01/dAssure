@@ -10,7 +10,7 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds , permitted } = require('./utils/tprm_audit');
 const scoring = require('./utils/tprm_scoring');
 const contradiction = require('./utils/tprm_contradiction');
 const { logError } = require('./utils/tprm_log');
@@ -339,12 +339,13 @@ router.get("/:id", async (req, res) => {
 });
 
 /* -------------------------------------------------- record tiering */
-router.post("/:id/tiering", requirePerm('assessment.perform'), async (req, res) => {
+router.post("/:id/tiering", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
         if (!editableOr(a, res)) return;
 
         const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
@@ -379,12 +380,13 @@ router.post("/:id/tiering", requirePerm('assessment.perform'), async (req, res) 
 });
 
 /* ----------------------------------- record one control position */
-router.post("/:id/responses", requirePerm('assessment.perform'), async (req, res) => {
+router.post("/:id/responses", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
         if (!editableOr(a, res)) return;
 
         const { qRef, position, note, override, justification } = req.body;
@@ -454,12 +456,13 @@ router.post("/:id/responses", requirePerm('assessment.perform'), async (req, res
 // Anything without evidence has to be looked at individually, which is the
 // entire point of the model: the assessor's time goes where the proof is
 // missing, not where it is present.
-router.post("/:id/accept-area", requirePerm('assessment.perform'), async (req, res) => {
+router.post("/:id/accept-area", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
         if (!editableOr(a, res)) return;
 
         const { domainCode } = req.body;
@@ -496,12 +499,13 @@ router.post("/:id/accept-area", requirePerm('assessment.perform'), async (req, r
 });
 
 /* ------------------------------------------- assign assessor / reviewer */
-router.put("/:id/assign", requirePerm('assessment.assign'), async (req, res) => {
+router.put("/:id/assign", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.assign')) return;
 
         const assessorId = req.body.assessorId || null;
         const reviewerId = req.body.reviewerId || null;
@@ -528,12 +532,13 @@ router.put("/:id/assign", requirePerm('assessment.assign'), async (req, res) => 
 });
 
 /* --------------------------------------------------- hold and resume */
-router.post("/:id/hold", requirePerm('assessment.hold'), async (req, res) => {
+router.post("/:id/hold", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.hold')) return;
 
         const { hold, reason } = req.body;
         if (hold) {
@@ -587,12 +592,13 @@ router.get("/:id/submit-check", async (req, res) => {
     }
 });
 
-router.post("/:id/submit", requirePerm('assessment.perform'), async (req, res) => {
+router.post("/:id/submit", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
 
         if (a.state !== 'in_progress') {
             return res.status(409).json({ error: "BAD_STATE", message: "Only an assessment in progress can be submitted" });
@@ -622,12 +628,13 @@ router.post("/:id/submit", requirePerm('assessment.perform'), async (req, res) =
     }
 });
 
-router.post("/:id/send-back", requirePerm('assessment.approve'), async (req, res) => {
+router.post("/:id/send-back", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.approve')) return;
 
         if (a.state !== 'under_review') {
             return res.status(409).json({ error: "BAD_STATE", message: "That assessment is not under review" });
@@ -654,12 +661,13 @@ router.post("/:id/send-back", requirePerm('assessment.approve'), async (req, res
     }
 });
 
-router.post("/:id/approve", requirePerm('assessment.approve'), async (req, res) => {
+router.post("/:id/approve", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.approve')) return;
 
         if (a.state !== 'under_review') {
             return res.status(409).json({ error: "BAD_STATE", message: "That assessment is not under review" });
@@ -689,13 +697,14 @@ router.post("/:id/approve", requirePerm('assessment.approve'), async (req, res) 
 });
 
 /* --------------------------------------- raise findings from the gaps */
-router.post("/:id/raise-findings", requirePerm('finding.manage'), async (req, res) => {
+router.post("/:id/raise-findings", async (req, res) => {
     const conn = await db.getConnection();
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'finding.manage')) return;
         if (!editableOr(a, res)) return;
 
         const m = await methodology(a.tenant_id);
@@ -760,12 +769,13 @@ router.post("/:id/raise-findings", requirePerm('finding.manage'), async (req, re
 });
 
 /* --------------------------------------------------- case comments */
-router.post("/:id/messages", requirePerm('case.comment'), async (req, res) => {
+router.post("/:id/messages", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'case.comment')) return;
 
         const { body, contextRef } = req.body;
         if (!body || !String(body).trim()) return res.status(400).json({ error: "Write something first" });
