@@ -21,6 +21,10 @@ function TPRMAssessments() {
     const [rows, setRows] = useState(null);
     const [mine, setMine] = useState(false);
     const [state, setState] = useState("all");
+    // Whether the supplier has sent anything back yet. State does not answer
+    // that: an assessment sits at "in progress" both before a questionnaire
+    // has been returned and while an assessor is working through one.
+    const [returned, setReturned] = useState("all");
 
     const load = useCallback(() => {
         apiJson(`/api/tprm/assessments/list${mine ? "?mine=1" : ""}`)
@@ -31,7 +35,15 @@ function TPRMAssessments() {
 
     if (!rows) return <div className="tprm-loading">Loading assessments...</div>;
 
-    const shown = state === "all" ? rows : rows.filter(r => r.state === state);
+    /* answered counts control positions on record, and those only exist once a
+       supplier's workbook has been imported. Tiering answers come from the
+       client and do not count - which is exactly the distinction that was
+       impossible to see from this table. */
+    const hasVendor = a => Number(a.answered) > 0;
+    const shown = rows
+        .filter(r => state === "all" || r.state === state)
+        .filter(r => returned === "all"
+            || (returned === "yes" ? hasVendor(r) : !hasVendor(r)));
 
     return (
         <div className="tprm-page">
@@ -51,6 +63,16 @@ function TPRMAssessments() {
                             ...Object.entries(STATE_LABEL).map(([k, v]) => ({ value: k, label: v })),
                         ]}
                     />
+                    <TPRMSelect
+                        style={{ width: 210 }}
+                        value={returned} onChange={setReturned}
+                        ariaLabel="Filter by supplier response"
+                        options={[
+                            { value: "all", label: "Answered or not" },
+                            { value: "yes", label: "Supplier answered" },
+                            { value: "no", label: "Awaiting supplier" },
+                        ]}
+                    />
                     <button
                         className={"tprm-btn" + (mine ? " navy" : "")}
                         onClick={() => setMine(m => !m)}
@@ -61,6 +83,14 @@ function TPRMAssessments() {
             </div>
 
             <div className="tprm-card flush">
+                <div className="tprm-card-head">
+                    <div className="tprm-card-title">
+                        {shown.length} of {rows.length} assessments
+                    </div>
+                    <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--tprm-muted)" }}>
+                        {rows.filter(hasVendor).length} have a supplier response
+                    </div>
+                </div>
                 <table className="tprm-table">
                     <thead>
                         <tr>

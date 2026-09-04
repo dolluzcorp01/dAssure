@@ -13,6 +13,7 @@ const { logError } = require('./utils/tprm_log');
 
 const router = express.Router();
 const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
+const dadmin = getDBConnection('dadmin').promise();
 
 router.use(verifyJWT, tenantScope);
 
@@ -34,7 +35,14 @@ router.get("/:tenantId/list", async (req, res) => {
                     DATEDIFF(f.due_at, CURDATE()) + FLOOR(f.sla_paused_sec / 86400) AS days_remaining,
                     CASE WHEN f.status IN ('open','in_progress')
                           AND DATEDIFF(f.due_at, CURDATE()) + FLOOR(f.sla_paused_sec / 86400) < 0
-                         THEN 1 ELSE 0 END AS breached
+                         THEN 1 ELSE 0 END AS breached,
+                    -- What the control has attached to it. Closing needs at
+                    -- least one, so the row can say that before it is clicked
+                    -- rather than only when the server refuses.
+                    (SELECT COUNT(*) FROM evidence e
+                       JOIN response r ON r.response_id = e.response_id
+                      WHERE r.assessment_id = f.assessment_id AND r.q_ref = f.control_ref)
+                      AS evidence_count
                FROM finding f
                JOIN assessment a ON a.assessment_id = f.assessment_id
                JOIN third_party tp ON tp.third_party_id = a.third_party_id
@@ -69,6 +77,32 @@ router.put("/:id", async (req, res) => {
         }
 
         const closing = status === 'closed' && f.status !== 'closed';
+
+        /* Closing says the gap is fixed. Saying so without proof is the same
+           unevidenced assertion this product refuses to score, so it is
+           refused here too - a finding that came from "claimed, no evidence"
+           cannot be retired on a second claim.
+
+           The way out when it genuinely will not be fixed is Accept risk,
+           which is a decision with a named owner and an expiry rather than a
+           quiet disappearance. That is why the gate points at it: the choice
+           is prove it or own it, never neither. */
+        if (closing) {
+            const [[ev]] = await db.query(
+                `SELECT COUNT(*) AS n
+                   FROM evidence e
+                   JOIN response r ON r.response_id = e.response_id
+                  WHERE r.assessment_id = ? AND r.q_ref = ?`,
+                [f.assessment_id, f.control_ref]);
+            if (!Number(ev.n)) {
+                return res.status(400).json({
+                    error: "EVIDENCE_REQUIRED",
+                    message: `Nothing is attached to ${f.control_ref}, so there is no proof this `
+                        + `has been fixed. Attach what the supplier sent on the assessment, or `
+                        + `use Accept risk to record a decision not to fix it.`,
+                });
+            }
+        }
         await db.query(
             `UPDATE finding SET
                status       = COALESCE(?, status),
@@ -105,14 +139,25 @@ router.post("/:id/accept", async (req, res) => {
         if (!requireTenant(req, res)) return;
         if (!permitted(req, res, 'risk.accept')) return;
 
-        const { reason, owner, expires } = req.body;
+        const { reason, expires } = req.body;
         if (!reason || String(reason).trim().length < 20) {
             return res.status(400).json({
                 error: "REASON_REQUIRED",
                 message: "Accepting a risk needs at least 20 characters of written rationale",
             });
         }
-        if (!owner) return res.status(400).json({ error: "OWNER_REQUIRED", message: "Name the person accepting this risk" });
+        /* The acceptor is whoever is signed in, and the moment is now. Asking
+           somebody to type their own name into a box the system already knows
+           is only a way to get it wrong - or to put someone else's name on a
+           decision they did not make. The name is stored alongside the id so a
+           report reads correctly years later, after that person has left. */
+        const [[who]] = await dadmin.query(
+            `SELECT CONCAT_WS(' ', emp_first_name, emp_last_name) AS emp_name, job_position
+               FROM employee WHERE emp_id = ?`, [req.emp_id]);
+        const owner = who
+            ? [who.emp_name, who.job_position].filter(Boolean).join(', ')
+            : req.emp_id;
+
         if (!expires) {
             return res.status(400).json({
                 error: "EXPIRY_REQUIRED",
@@ -121,9 +166,10 @@ router.post("/:id/accept", async (req, res) => {
         }
 
         await db.query(
-            `UPDATE finding SET status='accepted', accept_reason=?, accept_owner=?, accept_expires=?
+            `UPDATE finding SET status='accepted', accept_reason=?, accept_owner=?,
+                    accept_by=?, accept_at=NOW(3), accept_expires=?
               WHERE finding_id=?`,
-            [String(reason).trim(), owner, expires, f.finding_id]);
+            [String(reason).trim(), owner, req.emp_id, expires, f.finding_id]);
         await audit(req, {
             action: 'finding.risk_accepted', entity: 'finding', entityId: f.finding_id,
             after: { owner, expires }, reason, tenantId: f.tenant_id,

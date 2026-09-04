@@ -6,6 +6,7 @@ import { exportThemedExcel, exportThemedPdf } from "./utils/tprmExport";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_Findings.css";
 import TPRMSelect from "./TPRM_Select";
+import TPRMDateInput from "./TPRM_DateInput";
 
 const SEV_CLASS = { Critical: "red", High: "amber", Medium: "blue", Low: "grey" };
 
@@ -23,9 +24,14 @@ const STATUS_CLASS = {
 };
 
 function TPRMFindings() {
-    const { tenantId, hasPerm } = useAccess();
+    const { tenantId, hasPerm, user } = useAccess();
     const [rows, setRows] = useState(null);
     const [status, setStatus] = useState("");
+    // { f, reason, owner, expires, busy } while the accept form is open.
+    const [accepting, setAccepting] = useState(null);
+    // Which supplier's findings to show. Client side, because the rows are
+    // already here and a round trip to narrow a list you are holding is waste.
+    const [party, setParty] = useState("all");
     const [severity, setSeverity] = useState("all");
 
     const load = useCallback(() => {
@@ -45,21 +51,30 @@ function TPRMFindings() {
         } catch (e) { tprmAlert.apiError(e); }
     };
 
-    const accept = async (f) => {
-        const reason = await tprmAlert.reason(
-            `Accept the risk on ${f.finding_ref}?`,
-            "Why is this acceptable? Twenty characters minimum. Acceptance is temporary and needs a review date.",
-            20);
-        if (!reason) return;
-        const owner = window.prompt("Who is accepting this risk? Name and role.");
-        if (!owner) return;
-        const expires = window.prompt("Review date (YYYY-MM-DD)");
-        if (!expires) return;
+    /* Ninety days out is the usual next look at something nobody is fixing, and
+       a date already in the box is one less thing to invent. */
+    const accept = (f) => setAccepting({
+        f,
+        reason: "",
+        expires: new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10),
+        busy: false,
+    });
+
+    const saveAccept = async () => {
+        if (!accepting || !acceptReady) return;
+        setAccepting(a => ({ ...a, busy: true }));
         try {
-            await apiPost(`/api/tprm/findings/${f.finding_id}/accept`, { reason, owner, expires });
+            await apiPost(`/api/tprm/findings/${accepting.f.finding_id}/accept`, {
+                reason: accepting.reason.trim(),
+                expires: accepting.expires,
+            });
             tprmAlert.success("Risk accepted", "It will come back for review on the date you set.");
+            setAccepting(null);
             load();
-        } catch (e) { tprmAlert.apiError(e); }
+        } catch (e) {
+            tprmAlert.apiError(e);
+            setAccepting(a => (a ? { ...a, busy: false } : a));
+        }
     };
 
     if (!tenantId) {
@@ -67,7 +82,18 @@ function TPRMFindings() {
     }
     if (!rows) return <div className="tprm-loading">Loading findings...</div>;
 
-    const breached = rows.filter(r => Number(r.breached) === 1).length;
+    /* The same three the route insists on, checked here so the button can say
+       no before the round trip rather than after it. */
+    const acceptReady = !!accepting
+        && accepting.reason.trim().length >= 20
+        && !!accepting.expires;
+
+    /* Built from every row loaded, so the list stays complete even while it is
+       filtered down to one of them. */
+    const parties = [...new Set(rows.map(r => r.third_party_name))].sort();
+    const shown = party === "all" ? rows : rows.filter(r => r.third_party_name === party);
+
+    const breached = shown.filter(r => Number(r.breached) === 1).length;
 
     /* What a person opens this page to find out, before reading a single row:
        what is urgent, what is late, and what has been signed off rather than
@@ -75,12 +101,12 @@ function TPRMFindings() {
        the filters do. */
     const openish = r => ["open", "in_progress", "evidence_under_review"].includes(r.status);
     const cards = [
-        ["Critical open", rows.filter(r => r.severity === "Critical" && openish(r)).length,
+        ["Critical open", shown.filter(r => r.severity === "Critical" && openish(r)).length,
             "var(--tprm-red)"],
-        ["High open", rows.filter(r => r.severity === "High" && openish(r)).length,
+        ["High open", shown.filter(r => r.severity === "High" && openish(r)).length,
             "var(--tprm-amber)"],
         ["Past due", breached, "var(--tprm-red)"],
-        ["Risk accepted", rows.filter(r => r.status === "accepted").length,
+        ["Risk accepted", shown.filter(r => r.status === "accepted").length,
             "var(--tprm-purple)"],
     ];
 
@@ -98,7 +124,9 @@ function TPRMFindings() {
         { key: "days_left", label: "Days left", width: 11, align: "right", pdfWidth: 58 },
     ];
 
-    const exportRows = () => rows.map(f => ({
+    /* Exports what is on screen. An export that quietly carries rows the person
+       had filtered out is worse than no export - they will send it on. */
+    const exportRows = () => shown.map(f => ({
         finding_ref: f.finding_ref,
         third_party_name: f.third_party_name,
         control_ref: f.control_ref,
@@ -114,7 +142,8 @@ function TPRMFindings() {
         sheetTitle: "Findings",
         columns: EXPORT_COLUMNS,
         rows: exportRows(),
-        filterLabel: [status === "all" ? "All statuses" : status,
+        filterLabel: [party === "all" ? "All third parties" : party,
+            status === "all" ? "All statuses" : status,
             severity === "all" ? "All severities" : severity].filter(Boolean).join(" · "),
         statusKey: "severity",
     });
@@ -160,6 +189,15 @@ function TPRMFindings() {
                         ]}
                     />
                     <TPRMSelect
+                        style={{ width: 210 }}
+                        value={party} onChange={setParty}
+                        ariaLabel="Filter by third party"
+                        options={[
+                            { value: "all", label: "All third parties" },
+                            ...parties.map(n => ({ value: n, label: n })),
+                        ]}
+                    />
+                    <TPRMSelect
                         style={{ width: 160 }}
                         value={severity} onChange={setSeverity}
                         ariaLabel="Filter by severity"
@@ -191,7 +229,7 @@ function TPRMFindings() {
                     time the filter does. */}
                 <div className="tprm-card-head">
                     <div className="tprm-card-title">
-                        {rows.length} {rows.length === 1 ? "finding" : "findings"}
+                        {shown.length} {shown.length === 1 ? "finding" : "findings"}
                     </div>
                     <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--tprm-muted)" }}>
                         {status === "all" ? "All statuses" : "Open and in progress"}
@@ -202,17 +240,26 @@ function TPRMFindings() {
                     <thead>
                         <tr>
                             <th>Ref</th><th>Third party</th><th>Control</th><th>Finding</th>
-                            <th>Severity</th><th>Status</th><th>Due</th><th>Days left</th><th></th>
+                            <th>Severity</th><th>Evidence</th><th>Status</th><th>Due</th>
+                            <th>Days left</th><th className="tprm-col-actions" />
                         </tr>
                     </thead>
                     <tbody>
-                        {rows.map(f => (
+                        {shown.map(f => (
                             <tr key={f.finding_id} className={Number(f.breached) === 1 ? "danger" : ""}>
                                 <td className="num" style={{ fontWeight: 700 }}>{f.finding_ref}</td>
                                 <td>{f.third_party_name}</td>
                                 <td className="num" style={{ fontSize: 11.5 }}>{f.control_ref}</td>
                                 <td style={{ maxWidth: 340, fontSize: 12.5 }}>{f.title}</td>
                                 <td><span className={"tprm-chip " + SEV_CLASS[f.severity]}>{f.severity}</span></td>
+                                <td className="tprm-nowrap">
+                                    {Number(f.evidence_count)
+                                        ? <span className="tprm-chip green">
+                                            {f.evidence_count} file
+                                            {Number(f.evidence_count) > 1 ? "s" : ""}
+                                        </span>
+                                        : <span className="tprm-chip grey">none</span>}
+                                </td>
                                 <td>
                                     <span className={"tprm-chip "
                                         + (STATUS_CLASS[f.status] || "grey")}>
@@ -240,8 +287,19 @@ function TPRMFindings() {
                                                     Start
                                                 </button>
                                             )}
+                                            {/* Closing needs proof. Saying so on the
+                                                button beats letting someone click and
+                                                be refused - and it points at the action
+                                                that IS available instead. */}
                                             <button
                                                 className="tprm-btn sm" style={{ marginRight: 5 }}
+                                                disabled={!Number(f.evidence_count)}
+                                                title={Number(f.evidence_count)
+                                                    ? `Close - ${f.evidence_count} file`
+                                                      + `${Number(f.evidence_count) > 1 ? "s" : ""} attached`
+                                                    : `Nothing is attached to ${f.control_ref}. `
+                                                      + "Attach the proof on the assessment, or "
+                                                      + "use Accept risk."}
                                                 onClick={() => setFindingStatus(f, "closed")}
                                             >
                                                 Close
@@ -257,13 +315,107 @@ function TPRMFindings() {
                             </tr>
                         ))}
                         {rows.length === 0 && (
-                            <tr><td colSpan={9} className="tprm-empty">
+                            <tr><td colSpan={10} className="tprm-empty">
                                 No findings match that filter.
                             </td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
+            {/* Accepting a risk is one decision, so it is one form. It used to be
+                a styled dialog for the reason and then two native window.prompt
+                boxes for the owner and the date - which is why the browser's own
+                "localhost:3000 says" appeared over the app's chrome, and why you
+                could not go back a step or see what you had already typed. */}
+            {accepting && (
+                <div className="tprm-modal-backdrop">
+                    <div className="tprm-modal">
+                        <div className="tprm-modal-head">
+                            <div>
+                                <div className="tprm-modal-title">
+                                    Accept the risk on {accepting.f.finding_ref}
+                                </div>
+                                <div className="tprm-modal-sub">
+                                    {accepting.f.control_ref} &middot; {accepting.f.third_party_name}
+                                </div>
+                            </div>
+                            <button
+                                className="tprm-modal-close"
+                                aria-label="Close"
+                                onClick={() => setAccepting(null)}
+                                disabled={accepting.busy}
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        <div className="tprm-modal-body">
+                            <div className="tprm-note warn" style={{ marginBottom: 16 }}>
+                                This records a decision <b>not to fix</b>. It is not a way to close
+                                a finding quietly: the reason, the owner and the review date all go
+                                on the audit record and onto the issued report.
+                            </div>
+
+                            <div className="tprm-field">
+                                <label>Why is this acceptable<span className="req"> *</span></label>
+                                <textarea
+                                    className="tprm-textarea"
+                                    autoFocus
+                                    value={accepting.reason}
+                                    placeholder="What makes this tolerable, and what compensates for it"
+                                    onChange={e => setAccepting(a => ({ ...a, reason: e.target.value }))}
+                                />
+                                <div className="tprm-hint">
+                                    {accepting.reason.trim().length} of 20 characters minimum.
+                                </div>
+                            </div>
+
+                            {/* Not a field. You are the one clicking, so you are the
+                                one accepting - typing that in was only a way to put
+                                somebody else's name on your decision. */}
+                            <div className="tprm-field">
+                                <label>Accepted by</label>
+                                <div className="tprm-accept-by">
+                                    {user ? user.emp_name : "you"}
+                                    <span> &middot; recorded when you save</span>
+                                </div>
+                            </div>
+
+                            <div className="tprm-field">
+                                <label>Bring it back for review on<span className="req"> *</span></label>
+                                <TPRMDateInput
+                                    value={accepting.expires}
+                                    min={new Date(Date.now() + 864e5).toISOString().slice(0, 10)}
+                                    onChange={e => setAccepting(a => ({ ...a, expires: e.target.value }))}
+                                />
+                                <div className="tprm-hint">
+                                    Not today's date - the date this comes back. Acceptance is
+                                    temporary, which is what separates it from ignoring the finding.
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="tprm-modal-foot">
+                            <button
+                                className="tprm-btn"
+                                onClick={() => setAccepting(null)}
+                                disabled={accepting.busy}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className={"tprm-btn gold" + (accepting.busy ? " loading" : "")}
+                                onClick={saveAccept}
+                                disabled={accepting.busy || !acceptReady}
+                                title={acceptReady ? undefined
+                                    : "A reason of at least 20 characters, and a review date"}
+                            >
+                                {accepting.busy ? "Recording..." : "Accept the risk"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

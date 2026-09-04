@@ -373,6 +373,7 @@
 .tprm-field label .req { color: var(--tprm-red); }
 
 .tprm-hint { font-size: 12px; color: var(--tprm-faint); margin-top: 5px; }
+.tprm-hint.bad { color: var(--tprm-red); }
 .tprm-err { font-size: 12px; color: var(--tprm-red); margin-top: 5px; }
 
 /* ------------------------------------------------------------ chips */
@@ -482,6 +483,42 @@
 }
 
 .tprm-modal.wide { width: 900px; }
+
+/* A document on screen, not a dialog with a document in it. The modal itself
+   stops scrolling - the PDF viewer inside does its own paging, and two nested
+   scrollbars fighting each other is how a preview stops being readable. */
+.tprm-modal.doc {
+    width: 1040px;
+    height: 90vh;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.tprm-modal.doc .tprm-modal-body {
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    background: #4a5361;
+}
+
+.tprm-docframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+}
+
+.tprm-docwait {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 13px;
+    letter-spacing: .04em;
+}
 
 .tprm-modal-head {
     padding: 20px 26px;
@@ -794,3 +831,23 @@
    of the element, which on this layout is underneath the sticky top bar - the
    margin is what keeps the first line visible. */
 .tprm-reveal { scroll-margin-top: 88px; }
+
+/* A value the system supplies, shown where a field would be so the form still
+   reads as a complete record of the decision. */
+.tprm-accept-by {
+    padding: 10px 13px;
+    border: 1px dashed var(--tprm-line);
+    border-radius: 7px;
+    background: var(--tprm-wash);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--tprm-body);
+}
+
+.tprm-accept-by span { font-weight: 400; color: var(--tprm-muted); }
+
+/* The whole field opens the calendar, so the whole field should look like it
+   does. The native icon stays - it is what people look for - but it no longer
+   has to be hit. */
+.tprm-dateinput { cursor: pointer; }
+.tprm-dateinput::-webkit-calendar-picker-indicator { cursor: pointer; }

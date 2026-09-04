@@ -61,25 +61,40 @@ export async function apiUpload(endpoint, file, fields = {}) {
     return apiJson(endpoint, { method: "POST", body: fd });
 }
 
-/** Trigger a browser download from an authenticated endpoint. */
-export async function apiDownload(endpoint, fallbackName = "download") {
+/** Fetch a file from an authenticated endpoint and hand back the bytes plus the
+ *  name the server gave it. Separate from apiDownload because a file is not
+ *  always something to save: a PDF can be shown on screen first, and the same
+ *  blob then saved without asking the server for it twice. The caller owns the
+ *  blob, so the caller decides when it is finished with. */
+export async function apiBlob(endpoint, fallbackName = "download") {
     const res = await apiFetch(endpoint);
     if (!res.ok) {
         let data = null;
         try { data = await res.json(); } catch { /* not json */ }
         const err = new Error((data && (data.message || data.error)) || `Download failed (${res.status})`);
+        err.status = res.status;
         err.code = data && data.error;
         throw err;
     }
     const disp = res.headers.get("Content-Disposition") || "";
     const match = /filename="?([^"]+)"?/.exec(disp);
-    const blob = await res.blob();
+    return { blob: await res.blob(), filename: match ? match[1] : fallbackName };
+}
+
+/** Save a blob under a filename, through a link the browser then discards. */
+export function saveBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = match ? match[1] : fallbackName;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** Trigger a browser download from an authenticated endpoint. */
+export async function apiDownload(endpoint, fallbackName = "download") {
+    const { blob, filename } = await apiBlob(endpoint, fallbackName);
+    saveBlob(blob, filename);
 }

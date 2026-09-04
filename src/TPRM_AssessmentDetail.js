@@ -64,6 +64,19 @@ function TPRMAssessmentDetail() {
     const a = d.assessment;
     const frozen = ["approved", "issued", "closed"].includes(a.state);
 
+    const checkGate = async () => {
+        try { setGate(await apiJson(`/api/tprm/assessments/${id}/submit-check`)); }
+        catch (e) { tprmAlert.apiError(e); }
+    };
+
+    /* The submit checklist is a live answer to "can this go for review yet", so
+       anything that could change one of its six rows has to refresh it as well
+       as the assessment. Assigning a reviewer is exactly that case: the save
+       reloaded the assessment underneath and left the checklist still showing
+       the failure it had just fixed. Only refreshed while the checklist is on
+       screen - no point asking the server a question nobody is looking at. */
+    const reload = () => { load(); if (gate) checkGate(); };
+
     const saveAssignment = async () => {
         setBusy(true);
         try {
@@ -71,7 +84,7 @@ function TPRMAssessmentDetail() {
                 assessorId: assign.assessorId || null,
                 reviewerId: assign.reviewerId || null,
             });
-            load();
+            reload();
             tprmAlert.success("Assignment saved");
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
     };
@@ -87,7 +100,7 @@ function TPRMAssessmentDetail() {
         setBusy(true);
         try {
             await apiPost(`/api/tprm/assessments/${id}/hold`, { hold, reason });
-            load();
+            reload();
             tprmAlert.success(hold ? "Case placed on hold" : "Case resumed");
         } catch (e) { tprmAlert.apiError(e); } finally { setBusy(false); }
     };
@@ -105,7 +118,7 @@ function TPRMAssessmentDetail() {
         try {
             const r = await fn();
             if (successMsg) tprmAlert.success(successMsg);
-            load();
+            reload();
             return r;
         } catch (e) {
             tprmAlert.apiError(e);
@@ -147,19 +160,16 @@ function TPRMAssessmentDetail() {
                 if (go) navigate("/Findings");
             });
 
-    const checkGate = async () => {
-        try { setGate(await apiJson(`/api/tprm/assessments/${id}/submit-check`)); }
-        catch (e) { tprmAlert.apiError(e); }
-    };
-
     const submit = () =>
         run(() => apiPost(`/api/tprm/assessments/${id}/submit`, {}), "Submitted for review")
             .then(() => {
+                // Stay on the case. Being thrown back to the list gave no sign
+                // that anything had happened beyond a toast that vanishes -
+                // whereas the page itself now says "under review" in the header,
+                // has dropped the editing controls, and shows Approve and Send
+                // back to whoever is entitled to press them. Leaving is one
+                // click away; proving the submit worked was not.
                 setGate(null);
-                // It is the reviewer's case now, so the assessor goes back to
-                // the queue rather than sitting on a page they can no longer
-                // change.
-                navigate("/Assessments");
             });
 
     const approve = async () => {
