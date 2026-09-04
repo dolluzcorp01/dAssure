@@ -13,7 +13,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, permitted } = require('./utils/tprm_audit');
 const excel = require('./utils/tprm_excel');
 const storage = require('./utils/tprm_storage');
 const mailer = require('./utils/tprm_mailer');
@@ -287,9 +287,17 @@ router.get("/:tenantId/issuances", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'report.generate')) return;
 
         const [rows] = await db.query(
-            `SELECT ri.*, tp.third_party_name
+            /* Named columns rather than ri.*, so that file_key stays on the
+               server. It is the storage path of a confidential PDF, the page
+               has no use for it, and anything sent to a browser is one
+               screenshot away from being somewhere else. The sha256 IS sent -
+               that is the point of it, a fingerprint to check a file against. */
+            `SELECT ri.report_issue_id, ri.doc_reference, ri.recipients, ri.cc_recipients,
+                    ri.subject, ri.issued_by, ri.issued_time, ri.sha256, ri.assessment_id,
+                    tp.third_party_name
                FROM report_issue ri
                LEFT JOIN assessment a ON a.assessment_id = ri.assessment_id
                LEFT JOIN third_party tp ON tp.third_party_id = a.third_party_id

@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 001   Clients, engagement roles, methodology, audit
+--  dAssure  Migration 001   Clients, engagement roles, methodology, audit
 --  Database: tprm      Engine: InnoDB / utf8mb4
 --
 --  Identity is NOT duplicated here. Dolluz staff live in dadmin.employee

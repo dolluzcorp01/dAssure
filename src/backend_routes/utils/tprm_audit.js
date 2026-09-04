@@ -11,7 +11,7 @@ const dadmin = getDBConnection('dadmin').promise();
 
 // First-run setup.
 //
-// dTprm access is the engagement grant, so on a brand new system nobody can
+// dAssure access is the engagement grant, so on a brand new system nobody can
 // sign in: the person who hands out grants would need a grant themselves.
 // Setup mode is the one narrow door out of that. It is open only while the
 // system has never been set up - not one live grant anywhere - and only to
@@ -152,7 +152,7 @@ async function tenantScope(req, res, next) {
         if (!Object.keys(req.grants).length && !req.setupMode) {
             return res.status(403).json({
                 error: 'NO_ENGAGEMENT',
-                message: 'You have not been assigned to a client engagement in dTprm yet.',
+                message: 'You have not been assigned to a client engagement in dAssure yet.',
             });
         }
         next();
@@ -211,6 +211,44 @@ function permitted(req, res, permKey) {
     return false;
 }
 
+/**
+ * permitted(), for a screen more than one job can legitimately open.
+ *
+ * The third party register is the example: an Engagement Manager opens it to
+ * edit the register, an Assessor opens it to find the supplier they have been
+ * assigned. Those are different permissions and both are correct, so insisting
+ * on one key would lock out whichever job did not hold it. Mirrors the anyPerm
+ * rows in the navigation table, so a person is never shown a menu row leading
+ * to a page the API will refuse them.
+ */
+function permittedAny(req, res, permKeys) {
+    const t = (req.grants || {})[req.tenantId];
+    if (req.setupMode && permKeys.some(k => SETUP_PERMS.has(k))) return true;
+    if (t && permKeys.some(k => t.perms.has(k))) return true;
+    res.status(403).json({
+        error: 'FORBIDDEN',
+        message: `Your role on this client does not allow: ${permKeys.join(' or ')}`,
+    });
+    return false;
+}
+
+/**
+ * The clients a person may see this kind of thing on - not simply the clients
+ * they belong to.
+ *
+ * For the cross-client lists, where memberTenantIds alone would put a client
+ * they can only view the dashboard of into a list of assessments they have no
+ * business reading. Returns nothing rather than everything when the caller
+ * holds the permission nowhere, so a caller with no claim gets an empty list
+ * rather than the whole practice.
+ */
+function permittedTenantIds(req, permKeys) {
+    const keys = Array.isArray(permKeys) ? permKeys : [permKeys];
+    return Object.entries(req.grants || {})
+        .filter(([, t]) => keys.some(k => t.perms.has(k)))
+        .map(([id]) => Number(id));
+}
+
 function requirePerm(permKey) {
     return (req, res, next) => {
         const grants = req.grants || {};
@@ -238,6 +276,6 @@ function requirePerm(permKey) {
 const memberTenantIds = (req) => Object.keys(req.grants || {}).map(Number);
 
 module.exports = {
-    audit, grantsFor, tenantScope, requireTenant, requirePerm, permitted, memberTenantIds,
-    inSetupMode, systemHasNoGrants, SETUP_PERMS,
+    audit, grantsFor, tenantScope, requireTenant, requirePerm, permitted, permittedAny,
+    memberTenantIds, permittedTenantIds, inSetupMode, systemHasNoGrants, SETUP_PERMS,
 };

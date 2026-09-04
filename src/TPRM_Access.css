@@ -15,20 +15,28 @@
     color: var(--tprm-ink);
     line-height: 1;
 }
-.tprm-lock.dark .tprm-lock-name { color: #fff; }
 .tprm-lock-sub {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 3.6px;
+    letter-spacing: 2.6px;
     color: var(--tprm-gold);
-    margin-top: 4px;
+    margin-top: 5px;
 }
 
 /* .86 scale for the mark above the sign-in form. */
 .tprm-lock.sm img { height: 37.8px; }
 .tprm-lock.sm { gap: 10.3px; }
 .tprm-lock.sm .tprm-lock-name { font-size: 14.6px; letter-spacing: 2.58px; }
-.tprm-lock.sm .tprm-lock-sub { font-size: 7.7px; letter-spacing: 3.1px; margin-top: 3.4px; }
+.tprm-lock.sm .tprm-lock-sub { font-size: 8.6px; letter-spacing: 2.2px; margin-top: 4px; }
+
+/* On the navy rail the wordmark reverses out; the sub line is already gold and
+   reads on either ground. */
+.tprm-lock.on-dark .tprm-lock-name { color: #fff; }
+
+/* The banner pane carries the full artwork instead, so it has no gap to close
+   and no type of its own to size. */
+.tprm-lock.dark { gap: 0; }
+.tprm-lock.dark img { height: 58px; width: auto; max-width: 100%; }
 
 /* ------------------------------------------------------------- login */
 
@@ -148,15 +156,6 @@
     color: rgba(255, 255, 255, .38);
 }
 
-.tprm-login-tagline {
-    position: absolute;
-    right: 62px;
-    bottom: 52px;
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, .34);
-    letter-spacing: 1.4px;
-}
-
 /* -------------------------------------------------------- form pane */
 
 .tprm-login-form {
@@ -216,13 +215,12 @@
     color: var(--tprm-ink);
 }
 .tprm-centered-brand .s {
-    font-size: 10px;
-    letter-spacing: 4px;
+    font-size: 11px;
+    letter-spacing: 3px;
     color: var(--tprm-gold);
-    margin-top: 3px;
+    margin-top: 4px;
     font-weight: 700;
 }
-
 .tprm-centered-title { font-size: 24px; font-weight: 700; text-align: center; }
 .tprm-centered-sub {
     font-size: 14px;
@@ -286,7 +284,7 @@
     .tprm-login { flex-direction: column; }
     .tprm-login-panel { min-width: 0; padding: 28px; min-height: 340px; }
     .tprm-login-panelbody { position: static; transform: none; }
-    .tprm-login-dots, .tprm-login-tagline { position: static; margin-top: 22px; }
+    .tprm-login-dots { position: static; margin-top: 22px; }
     .tprm-login-headline { font-size: 30px; }
     .tprm-login-sub { font-size: 15px; }
     .tprm-login-stats { gap: 26px; }

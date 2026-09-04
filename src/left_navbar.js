@@ -33,6 +33,8 @@ import React, { useMemo } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAccess } from "./utils/AccessContext";
 import { ROLE_INFO, roleCode, roleColorOnDark } from "./utils/tprmRoles";
+// The same lockup the sign-in form carries, reversed for the navy ground.
+import { LogoLock } from "./TPRM_AccessBits";
 import "./left_navbar.css";
 
 // label   what the row says, and what the top bar titles the page
@@ -110,6 +112,37 @@ export function navLabel(item, code) {
     return (item.labelAs && item.labelAs[code]) || item.label;
 }
 
+/**
+ * The first page this person can actually open.
+ *
+ * Everything used to fall back to /Dashboard, which is only right for five of
+ * the six roles. An Instrument Author holds no dashboard.view at all, so a
+ * stray URL, a sign-in or a refused page all landed them on the one screen
+ * their own menu does not contain - and now that the dashboard route checks
+ * the permission too, on an error rather than a page.
+ *
+ * Derived from the same table the rail is drawn from, so a role can never be
+ * sent somewhere its menu would not have offered.
+ */
+export function firstAllowedRoute(has, code, setupMode) {
+    const reachable = i => i.where !== "client" && navVisible(i, has, code, setupMode);
+
+    // Dashboard first when they hold it, whatever its position in the table.
+    // It is the page written for the role - a reviewer's queue, an assessor's
+    // caseload - so falling through to whichever row happens to sit at the top
+    // of NAV_ITEMS would land five of the six roles on Standards.
+    const home = NAV_ITEMS.find(i => i.to === "/Dashboard");
+    if (home && reachable(home)) return home.to;
+
+    // An Instrument Author holds no dashboard.view at all, and their work is
+    // the library, so the first row they can reach is the right answer for them.
+    const item = NAV_ITEMS.find(reachable);
+
+    // My Account carries no permission and every signed-in person has one, so
+    // there is always somewhere to land, even for a grant that permits nothing.
+    return item ? item.to : "/My_Account";
+}
+
 function LeftNavbar() {
     const { user, tenant, hasPerm, setupMode } = useAccess();
     const { pathname } = useLocation();
@@ -150,8 +183,7 @@ function LeftNavbar() {
     return (
         <aside className="tprm-navbar">
             <div className="tprm-nav-brand">
-                <div className="tprm-nav-brandname">DOLLUZ CORP</div>
-                <div className="tprm-nav-brandsub">TPRM TOOLKIT</div>
+                <LogoLock onDark sm />
             </div>
 
             <nav className="tprm-nav-scroll">

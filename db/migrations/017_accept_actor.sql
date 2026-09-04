@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 017   Who accepted a risk, and when
+--  dAssure  Migration 017   Who accepted a risk, and when
 --
 --  The finding recorded accept_owner as free text somebody typed, and nothing
 --  at all about when the acceptance happened. Both were being asked for in the

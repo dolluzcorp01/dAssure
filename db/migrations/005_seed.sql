@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 005   Reference data + one working starter instrument
+--  dAssure  Migration 005   Reference data + one working starter instrument
 --  Safe to re-run: every insert is INSERT IGNORE or ON DUPLICATE KEY UPDATE.
 -- =====================================================================
 

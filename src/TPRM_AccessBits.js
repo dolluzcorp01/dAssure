@@ -6,17 +6,52 @@
 
 import React from "react";
 import logo_eagle from "./assets/img/logo_eagle.png";
+import brandmarkReversed from "./assets/img/DOLLUZ_CORP_reversed.png";
 import "./TPRM_Access.css";
 
-/** Eagle beside the two-line wordmark. `dark` for the banner pane, `sm` for
- *  the .86 scale the reference uses above the sign-in form. */
-export function LogoLock({ dark, sm }) {
+/* Two marks, because the two grounds want different things.
+ *
+ * The full artwork carries the corporate tagline and is the right object on the
+ * navy banner, where it is the only thing in the pane that has to say who this
+ * is. Above the sign-in form the question is different - the person already
+ * knows the company, they are looking for which of its tools they are signing
+ * into - so that side keeps the eagle beside a two line wordmark, and the
+ * second line names the product.
+ *
+ * The supplied artwork is black ink on a transparent ground, so the banner
+ * takes a reversed copy: the same file with the neutral ink flipped to white
+ * and the gold eagle untouched. */
+export const TOOLKIT_NAME = "dAssure Toolkit";
+
+/**
+ * The Dolluz Corp lockup.
+ *
+ *   dark    the full reversed artwork, for the login banner - the one place
+ *           with the width to carry the corporate tagline legibly.
+ *   onDark  the typeset lockup with a white wordmark, for the navy rail.
+ *   sm      the .86 scale the reference uses above a form.
+ *
+ * The rail takes the typeset version rather than the artwork for a reason
+ * worth writing down: in the artwork the eagle stands about four times the
+ * wordmark's cap height and the bird's tail hangs well below the type, which
+ * reads as a crest at banner size and as an unbalanced blob at 244px. Set as
+ * type, the eagle and the two lines are sized against each other by CSS, so
+ * the rail and the sign-in form are demonstrably the same object.
+ */
+export function LogoLock({ dark, onDark, sm }) {
+    if (dark) {
+        return (
+            <div className="tprm-lock dark">
+                <img src={brandmarkReversed} alt="Dolluz Corp" />
+            </div>
+        );
+    }
     return (
-        <div className={"tprm-lock" + (dark ? " dark" : "") + (sm ? " sm" : "")}>
+        <div className={"tprm-lock" + (onDark ? " on-dark" : "") + (sm ? " sm" : "")}>
             <img src={logo_eagle} alt="" />
             <div>
                 <div className="tprm-lock-name">DOLLUZ CORP</div>
-                <div className="tprm-lock-sub">TPRM TOOLKIT</div>
+                <div className="tprm-lock-sub">{TOOLKIT_NAME}</div>
             </div>
         </div>
     );
@@ -27,9 +62,12 @@ export function Centered({ title, sub, wide, children }) {
     return (
         <div className="tprm-centered">
             <div className={"tprm-centered-inner" + (wide ? " wide" : "")}>
+                {/* Forgot password, two factor and accept invitation are all
+                    "which tool am I in" screens, so they take the same wordmark
+                    as the sign-in form rather than the corporate artwork. */}
                 <div className="tprm-centered-brand">
                     <div className="n">DOLLUZ CORP</div>
-                    <div className="s">TPRM TOOLKIT</div>
+                    <div className="s">{TOOLKIT_NAME}</div>
                 </div>
                 <div className="tprm-card" style={{ padding: 34 }}>
                     <div className="tprm-centered-title">{title}</div>

@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 015   "Remember for 14 days"
+--  dAssure  Migration 015   "Remember for 14 days"
 --
 --  The sign-in screen has carried this checkbox and sent it to the server for
 --  a while; the server ignored it, because two factor was unconditional.

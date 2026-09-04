@@ -1,4 +1,4 @@
-// Dialogs for dTprm.
+// Dialogs for dAssure.
 //
 // The public surface here has not changed - success / error / info / confirm /
 // reason / apiError, same arguments, same return values - so no calling page

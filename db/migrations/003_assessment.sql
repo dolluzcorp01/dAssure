@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 003   Third parties, assessments, evidence, findings
+--  dAssure  Migration 003   Third parties, assessments, evidence, findings
 -- =====================================================================
 
 CREATE TABLE IF NOT EXISTS third_party (

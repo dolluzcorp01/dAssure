@@ -2,7 +2,8 @@ import React from "react";
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import LeftNavbar from "./left_navbar";
 import TopBar from "./TPRM_TopBar";
-import { AccessProvider, ProtectedRoute } from "./utils/AccessContext";
+import { AccessProvider } from "./utils/AccessContext";
+import { ProtectedRoute, TPRMHome } from "./utils/ProtectedRoute";
 import TPRMDialogHost from "./TPRM_Dialog";
 
 import Login from "./TPRM_Login";
@@ -54,31 +55,31 @@ function App() {
                         <ClientBar />
                         <Routes>
                             <Route path="/Dashboard" element={
-                                <ProtectedRoute><Dashboard /></ProtectedRoute>} />
+                                <ProtectedRoute perm="dashboard.view"><Dashboard /></ProtectedRoute>} />
                             <Route path="/Clients" element={
-                                <ProtectedRoute><Clients /></ProtectedRoute>} />
+                                <ProtectedRoute perm="client.create"><Clients /></ProtectedRoute>} />
                             <Route path="/Clients/new" element={
                                 <ProtectedRoute perm="client.create"><ClientWizard /></ProtectedRoute>} />
                             {/* Ranked below /Clients/new by the router, because a
                                 static segment always beats a dynamic one. */}
                             <Route path="/Clients/:tenantId" element={
-                                <ProtectedRoute><ClientHome /></ProtectedRoute>} />
+                                <ProtectedRoute perm="dashboard.view"><ClientHome /></ProtectedRoute>} />
                             <Route path="/Third_Parties" element={
-                                <ProtectedRoute><ThirdParties /></ProtectedRoute>} />
+                                <ProtectedRoute anyPerm={["vendor.manage", "assessment.perform"]}><ThirdParties /></ProtectedRoute>} />
                             <Route path="/Standards" element={
                                 <ProtectedRoute perm="case.comment"><Standards /></ProtectedRoute>} />
                             <Route path="/Vendor_Population" element={
                                 <ProtectedRoute perm="vendor.manage"><VendorPopulation /></ProtectedRoute>} />
                             <Route path="/Assessments" element={
-                                <ProtectedRoute><Assessments /></ProtectedRoute>} />
+                                <ProtectedRoute anyPerm={["vendor.manage", "assessment.perform"]}><Assessments /></ProtectedRoute>} />
                             <Route path="/Assessments/:id" element={
-                                <ProtectedRoute><AssessmentDetail /></ProtectedRoute>} />
+                                <ProtectedRoute perm="assessment.perform"><AssessmentDetail /></ProtectedRoute>} />
                             <Route path="/Findings" element={
-                                <ProtectedRoute><Findings /></ProtectedRoute>} />
+                                <ProtectedRoute perm="finding.manage"><Findings /></ProtectedRoute>} />
                             <Route path="/Reports" element={
                                 <ProtectedRoute perm="report.generate"><Reports /></ProtectedRoute>} />
                             <Route path="/Question_Bank" element={
-                                <ProtectedRoute><QuestionBank /></ProtectedRoute>} />
+                                <ProtectedRoute perm="case.comment"><QuestionBank /></ProtectedRoute>} />
                             <Route path="/Methodology" element={
                                 <ProtectedRoute perm="methodology.edit"><Methodology /></ProtectedRoute>} />
                             <Route path="/Users_And_Roles" element={
@@ -90,7 +91,7 @@ function App() {
                             {/* No permission: everyone may see their own account. */}
                             <Route path="/My_Account" element={
                                 <ProtectedRoute><MyAccount /></ProtectedRoute>} />
-                            <Route path="*" element={<Navigate to="/Dashboard" replace />} />
+                            <Route path="*" element={<TPRMHome />} />
                         </Routes>
                     </div>
                 </div>

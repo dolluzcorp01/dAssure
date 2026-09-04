@@ -4,6 +4,7 @@ import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_UsersAndRoles.css";
 import TPRMSelect from "./TPRM_Select";
+import { ROLE_INFO } from "./utils/tprmRoles";
 
 function TPRMUsersAndRoles() {
     const { tenantId, tenant, user } = useAccess();
@@ -12,6 +13,9 @@ function TPRMUsersAndRoles() {
     const [grantable, setGrantable] = useState([]);
     const [form, setForm] = useState(null);
     const [busy, setBusy] = useState(false);
+    // The full capability grid, read from the same tables the API checks.
+    const [matrix, setMatrix] = useState(null);
+    const [showMatrix, setShowMatrix] = useState(false);
 
     const load = useCallback(() => {
         if (!tenantId) return;
@@ -21,6 +25,17 @@ function TPRMUsersAndRoles() {
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => { apiJson("/api/tprm/clients/roles").then(setRoles).catch(() => {}); }, []);
+
+    // Fetched once, when it is first asked for. Nobody opens this page to read
+    // the matrix, so it does not need to be on the wire before they do.
+    const openMatrix = () => {
+        setShowMatrix(true);
+        if (!matrix) {
+            apiJson("/api/tprm/clients/permission-matrix")
+                .then(setMatrix)
+                .catch(e => { tprmAlert.apiError(e); setShowMatrix(false); });
+        }
+    };
 
     const grant = async () => {
         setBusy(true);
@@ -96,7 +111,7 @@ function TPRMUsersAndRoles() {
                                 <td style={{ fontSize: 12, color: "var(--tprm-muted)" }}>{m.emp_mail_id}</td>
                                 <td><span className="tprm-chip purple">{m.role_name}</span></td>
                                 <td className="num">{m.rank_value}</td>
-                                {/* The preview shows two factor enrolment here. dTprm emails a
+                                {/* The preview shows two factor enrolment here. dAssure emails a
                                     fresh code at every sign-in, so there is nothing to enrol and
                                     nobody is ever "pending". What is actually worth knowing is
                                     whether a granted person has ever used the access. */}
@@ -124,7 +139,21 @@ function TPRMUsersAndRoles() {
             </div>
 
             <div className="tprm-card flush">
-                <div className="tprm-card-head"><div className="tprm-card-title">WHAT EACH ROLE CAN DO</div></div>
+                <div className="tprm-card-head">
+                    <div className="tprm-card-title">WHAT EACH ROLE CAN DO</div>
+                    {/* The description below says what a role is for. The matrix
+                        says what it can actually do, capability by capability,
+                        which is a table too wide to sit under this one. */}
+                    <button
+                        className="tprm-infobtn"
+                        onClick={openMatrix}
+                        title="See every capability, role by role"
+                        aria-label="Open the permission matrix"
+                    >
+                        i
+                    </button>
+                    <div className="tprm-matrix-open" onClick={openMatrix}>Permission matrix</div>
+                </div>
                 <table className="tprm-table">
                     <thead><tr><th>Role</th><th>Level</th><th>Can grant</th><th>Description</th></tr></thead>
                     <tbody>
@@ -139,6 +168,113 @@ function TPRMUsersAndRoles() {
                     </tbody>
                 </table>
             </div>
+
+            {showMatrix && (
+                <div className="tprm-modal-backdrop">
+                    <div className="tprm-modal sheet">
+                        <div className="tprm-modal-head">
+                            <div>
+                                <div className="tprm-modal-title">Permission matrix</div>
+                                <div className="tprm-modal-sub">
+                                    Read live from the permission tables. This is the same matrix
+                                    the API checks on every request, so it cannot drift from
+                                    what the system will actually allow.
+                                </div>
+                            </div>
+                            <button
+                                className="tprm-modal-close"
+                                aria-label="Close"
+                                onClick={() => setShowMatrix(false)}
+                            >
+                                &times;
+                            </button>
+                        </div>
+                        <div className="tprm-modal-body">
+                            {!matrix && <div className="tprm-loading">Reading the matrix...</div>}
+                            {matrix && (
+                                <div className="tprm-matrix-wrap">
+                                    <table className="tprm-matrix">
+                                        <thead>
+                                            <tr>
+                                                <th>Capability</th>
+                                                {matrix.roles.map(r => (
+                                                    <th key={r.role_code} title={r.role_name}>
+                                                        {r.role_code}
+                                                    </th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {matrix.permissions.map(p => (
+                                                <tr key={p.perm_key}>
+                                                    <td>
+                                                        {p.label}
+                                                        <span className="tprm-matrix-key">{p.perm_key}</span>
+                                                    </td>
+                                                    {matrix.roles.map(r => {
+                                                        const has = p.roles.includes(r.role_code);
+                                                        return (
+                                                            <td
+                                                                key={r.role_code}
+                                                                className={"tprm-matrix-cell"
+                                                                    + (has ? " yes" : "")}
+                                                                /* Drawn in the role's own colour,
+                                                                   the same one the rail and the
+                                                                   user list use for it. */
+                                                                style={has ? {
+                                                                    color: (ROLE_INFO[r.role_code]
+                                                                        || {}).color,
+                                                                } : undefined}
+                                                                title={`${r.role_name}: `
+                                                                    + (has ? "allowed" : "not allowed")}
+                                                            >
+                                                                {has ? "✓" : "·"}
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+
+                                    <div className="tprm-matrix-legend">
+                                        {matrix.roles.map(r => (
+                                            <div className="tprm-matrix-leg" key={r.role_code}>
+                                                <span
+                                                    className="tprm-matrix-dot"
+                                                    style={{
+                                                        background: (ROLE_INFO[r.role_code] || {}).color,
+                                                    }}
+                                                />
+                                                <b>{r.role_code}</b> {r.role_name}
+                                                <span className="tprm-matrix-rank">
+                                                    level {r.rank_value}
+                                                    {Number(r.can_grant) === 1 ? " · can grant" : ""}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {/* Worth saying on the page rather than in a
+                                        handbook nobody opens: a role is held per
+                                        client, and a menu that hides a row is a
+                                        convenience, not the control. */}
+                                    <div className="tprm-note" style={{ marginTop: 18 }}>
+                                        A person holds a role <b>per client</b>, so the same person can
+                                        be an Engagement Manager on one engagement and an Assessor on
+                                        another. Menu rows are derived from these permissions, but
+                                        hiding a menu is not access control - every request is checked
+                                        against this matrix again on the server.
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="tprm-modal-foot">
+                            <button className="tprm-btn" onClick={() => setShowMatrix(false)}>Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Deliberately no dismiss-on-backdrop-click: a stray click outside
                 must never discard a part-filled form. Cancel is the way out. */}

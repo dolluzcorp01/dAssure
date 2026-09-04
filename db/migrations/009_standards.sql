@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 009   Align the standards catalogue with the
+--  dAssure  Migration 009   Align the standards catalogue with the
 --                         Dolluz TPRM UI reference
 --
 --  Four standards the reference lists were missing, and two titles read

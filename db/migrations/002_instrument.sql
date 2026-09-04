@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 002   Instruments, questions, standards
+--  dAssure  Migration 002   Instruments, questions, standards
 --
 --  The version freeze lives here. An assessment binds to one
 --  instrument_version for its whole life, so editing a question later can

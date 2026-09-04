@@ -1,4 +1,4 @@
-/* Shared page chrome. Every dTprm page uses these classes so the pages
+/* Shared page chrome. Every dAssure page uses these classes so the pages
    themselves only carry what is genuinely their own.
 
    Every measurement below is the one the toolkit is drawn at in
@@ -508,6 +508,25 @@
     height: 100%;
     border: 0;
     display: block;
+}
+
+/* A long table of the app's own - too tall for the 620 dialog, but not a file.
+   Fixed height like .doc so the head and foot stay put, but it scrolls its own
+   body and keeps the app's ground rather than a viewer's. */
+.tprm-modal.sheet {
+    width: 900px;
+    height: 88vh;
+    max-height: 88vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.tprm-modal.sheet .tprm-modal-body {
+    padding: 0;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .tprm-docwait {

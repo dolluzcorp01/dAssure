@@ -11,7 +11,8 @@ const express = require("express");
 const multer = require("multer");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm,
+        permitted, permittedAny, permittedTenantIds } = require('./utils/tprm_audit');
 const excel = require('./utils/tprm_excel');
 const classify = require('./utils/tprm_classify');
 const storage = require('./utils/tprm_storage');
@@ -520,6 +521,7 @@ router.get("/:tenantId/funnel", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'vendor.manage')) return;
         const t = req.tenantId;
 
         const [[r]] = await db.query(
@@ -571,7 +573,9 @@ router.get("/:tenantId/funnel", async (req, res) => {
    because you were last looking at a different engagement. */
 router.get("/third-parties", async (req, res) => {
     try {
-        const ids = memberTenantIds(req);
+        /* Scoped like the assessment list: the clients where the caller does
+           this work, not simply the clients they belong to. */
+        const ids = permittedTenantIds(req, ['vendor.manage', 'assessment.perform']);
         if (!ids.length) return res.json([]);
 
         const [rows] = await db.query(
@@ -605,6 +609,7 @@ router.get("/:tenantId/third-parties", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permittedAny(req, res, ['vendor.manage', 'assessment.perform'])) return;
 
         const [rows] = await db.query(
             `SELECT tp.*, s.sector_name, td.in_scope, td.reason AS triage_reason,

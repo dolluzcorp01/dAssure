@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 011   Who confirmed a supplier's classification
+--  dAssure  Migration 011   Who confirmed a supplier's classification
 --
 --  The classification review asks a person to confirm, or correct, the
 --  instrument a keyword rule suggested. Until now there was nowhere to

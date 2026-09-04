@@ -1,14 +1,14 @@
-// Sign-in for dTprm.
+// Sign-in for dAssure.
 //
 // Identity is NOT duplicated. Staff sign in with the same dadmin.employee
 // credentials they use for every other dApp, and the JWT_SECRET is shared, so
 // the token minted here is the same shape as dAdmin's.
 //
-// What IS specific to dTprm is the engagement role: which client you may work
+// What IS specific to dAssure is the engagement role: which client you may work
 // on and in what capacity. That lives in tprm.tprm_user_tenant_role and is
 // resolved on every request by tenantScope, never trusted from the token.
 //
-// Also specific to dTprm is the second factor. A password alone never issues
+// Also specific to dAssure is the second factor. A password alone never issues
 // a session here: /Verifylogin proves the password, mails a six digit code and
 // returns a short lived mfaToken. Only /mfa/verify sets the dTprm_token
 // cookie.
@@ -24,7 +24,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const getDBConnection = require('../../config/db');
-const { grantsFor, audit, inSetupMode } = require('./utils/tprm_audit');
+const { grantsFor, audit, inSetupMode, tenantScope, requireTenant } = require('./utils/tprm_audit');
 const { logError, logSignInCode } = require('./utils/tprm_log');
 const mailer = require('./utils/tprm_mailer');
 const {
@@ -181,7 +181,7 @@ async function sendOtp(req, employee, sendNo = 1) {
 }
 
 /**
- * The only place a dTprm session is created. The mfa claim is what verifyJWT
+ * The only place a dAssure session is created. The mfa claim is what verifyJWT
  * checks for, so a token minted anywhere else - including by a sibling dApp
  * sharing JWT_SECRET - does not open this product.
  */
@@ -224,7 +224,7 @@ router.post("/Verifylogin", async (req, res) => {
             return res.status(401).json({ message: "INVALID_CREDENTIALS" });
         }
 
-        // dTprm access is the engagement grant itself. No grant on any client
+        // dAssure access is the engagement grant itself. No grant on any client
         // means there is nothing here for you, whatever your dAdmin role is.
         // Checked before the code is mailed: there is no point sending someone
         // a code for a door that will not open.
@@ -236,7 +236,7 @@ router.post("/Verifylogin", async (req, res) => {
         if (!Object.keys(grants).length && !(await inSetupMode(employee.emp_id))) {
             return res.status(403).json({
                 message: "NO_ENGAGEMENT",
-                detail: "You have not been assigned to a client engagement in dTprm yet. "
+                detail: "You have not been assigned to a client engagement in dAssure yet. "
                     + "Ask a Practice Head or Engagement Manager to grant you a role.",
             });
         }
@@ -268,7 +268,7 @@ router.post("/Verifylogin", async (req, res) => {
             ...sent,
         });
     } catch (e) {
-        logError("dTprm login error", e, req);
+        logError("dAssure login error", e, req);
         return res.status(500).json({ message: "Database error" });
     }
 });
@@ -502,8 +502,26 @@ router.get("/me", verifyJWT, async (req, res) => {
 });
 
 /* --------------------------------- who can be assigned work on a client */
-router.get("/tenant-members/:tenantId", verifyJWT, async (req, res) => {
+/* Who can be assigned on one client.
+ *
+ * This is the only route in the file that reads engagement data rather than
+ * the caller's own session, and it was the one place in the application where
+ * the client boundary was not enforced. verifyJWT alone accepts the shared
+ * Dolluz Corp token, so anyone signed into any of the sibling applications
+ * could walk tenant ids and collect the name, work email and role of every
+ * person on every engagement - including engagements at clients they had never
+ * been near, and while holding no dAssure grant at all.
+ *
+ * tenantScope brings the caller's grants onto the request and refuses anyone
+ * with no engagement; requireTenant then insists the client in the URL is one
+ * of theirs. No permission beyond that: knowing who your own colleagues are on
+ * a client you work on is not privileged, and the assignment pickers on the
+ * assessment page need it. */
+router.get("/tenant-members/:tenantId", verifyJWT, tenantScope, async (req, res) => {
     try {
+        req.tenantId = Number(req.params.tenantId);
+        if (!requireTenant(req, res)) return;
+
         const [grantRows] = await tprm.query(
             `SELECT utr.emp_id, r.role_code, r.role_name, r.rank_value
                FROM tprm_user_tenant_role utr

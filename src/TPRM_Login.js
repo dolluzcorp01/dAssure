@@ -59,7 +59,7 @@ const MESSAGES = {
     MFA_INVALID: "That code is not correct.",
     RESEND_LIMIT: "Too many codes sent. Sign in again to start over.",
     NO_ENGAGEMENT:
-        "Your account is valid, but you have not been assigned to a client engagement in dTprm yet. "
+        "Your account is valid, but you have not been assigned to a client engagement in dAssure yet. "
         + "Ask a Practice Head or Engagement Manager to grant you a role.",
 };
 
@@ -408,7 +408,10 @@ function TPRMLogin() {
                     </span>
                 </div>
 
-                <div className="tprm-login-tagline">ONE PLACE . ONE START . ONE TEAM</div>
+                {/* The standalone tagline is gone: the lockup at the top of this
+                    same panel now carries "One Place . One Start . One Team" as
+                    part of the artwork, and printing it twice on one screen made
+                    the panel read as a mistake. */}
             </div>
 
             <div className="tprm-login-form">

@@ -21,7 +21,7 @@ const archiver = require("archiver");
 const unzipper = require("unzipper");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, permitted } = require('./utils/tprm_audit');
 const excel = require('./utils/tprm_excel');
 const scoring = require('./utils/tprm_scoring');
 const storage = require('./utils/tprm_storage');
@@ -658,6 +658,7 @@ router.get("/:tenantId/status", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'vendor.manage')) return;
 
         const [rows] = await db.query(
             `SELECT d.*, a.assessment_id, a.tier, a.state AS assessment_state,
@@ -668,6 +669,14 @@ router.get("/:tenantId/status", async (req, res) => {
                LEFT JOIN distribution d ON d.assessment_id = a.assessment_id
               WHERE a.tenant_id=? AND a.tier IS NOT NULL
               ORDER BY tp.third_party_name`, [req.tenantId]);
+
+        /* d.* is worth keeping here - this table drives eight columns and the
+           step rail, and naming them all would go stale the next time one is
+           added. What is not worth keeping is the storage path of the issued
+           questionnaire: the page never reads it, and a file key in a browser
+           is a link to a supplier's pack for as long as anyone has a copy of
+           it. Downloads go through the routes that check who is asking. */
+        rows.forEach(r => { delete r.workbook_key; });
         res.json(rows);
     } catch (e) {
         logError("distribution status", e, req);

@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 004   Intake pipeline, distribution, mail, case notes
+--  dAssure  Migration 004   Intake pipeline, distribution, mail, case notes
 -- =====================================================================
 
 -- Rows exactly as received from the client intake workbook, before any

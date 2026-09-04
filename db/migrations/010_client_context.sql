@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 010   The operating context captured at onboarding
+--  dAssure  Migration 010   The operating context captured at onboarding
 --
 --  The onboarding wizard asks for more than a name and a code. Trading
 --  name is a real field - it is what appears on a report when it differs

@@ -71,6 +71,7 @@ router.get("/responses/:id/list", async (req, res) => {
         if (!r) return res.status(404).json({ error: "That control response does not exist" });
         req.tenantId = Number(r.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'evidence.manage')) return;
 
         const [rows] = await db.query(
             `SELECT evidence_id, original_name, mime_type, byte_size, sha256, doc_type,
@@ -103,6 +104,7 @@ router.get("/:id/download", async (req, res) => {
         if (!e) return res.status(404).json({ error: "That evidence file does not exist" });
         req.tenantId = Number(e.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'evidence.manage')) return;
 
         const buf = storage.get(e.file_key);
         if (!buf) return res.status(404).json({ error: "The stored file could not be read" });

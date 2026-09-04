@@ -10,7 +10,8 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds , permitted } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds, permitted,
+        permittedTenantIds } = require('./utils/tprm_audit');
 const scoring = require('./utils/tprm_scoring');
 const contradiction = require('./utils/tprm_contradiction');
 const { logError } = require('./utils/tprm_log');
@@ -249,7 +250,11 @@ router.post("/third-parties/:id/create", requirePerm('assessment.assign'), async
 /* ------------------------------------------------- list my assessments */
 router.get("/list", async (req, res) => {
     try {
-        const ids = memberTenantIds(req);
+        /* Membership is not the question here - a Client Viewer belongs to a
+           client and still has no business reading its assessments. Scoped to
+           the clients where the caller holds the work, so an empty list is the
+           honest answer rather than someone else's caseload. */
+        const ids = permittedTenantIds(req, ['assessment.perform', 'vendor.manage']);
         if (!ids.length) return res.json([]);
         const mine = req.query.mine === '1';
 
@@ -282,12 +287,16 @@ router.get("/list", async (req, res) => {
 });
 
 /* ----------------------------------------------- the full case view */
+/* Reading a case is assessment work. It carries every position, every
+   assessor note and every override justification, so it is gated on the same
+   permission as recording one rather than on membership alone. */
 router.get("/:id", async (req, res) => {
     try {
         const a = await loadAssessment(req.params.id);
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
 
         const [questions] = await db.query(
             `SELECT q.q_ref, q.q_type, q.q_text, q.dimension_code, q.domain_code, q.evidence_required,
@@ -400,6 +409,11 @@ router.post("/:id/responses", async (req, res) => {
         // An override cannot be saved silently. This is the record an auditor
         // reads when they ask why a supplier's own answer was changed.
         if (override) {
+            // Recording a position and overturning one are different acts, so
+            // they are different permissions. An Assessor records; correcting
+            // their reading of a supplier's answer belongs to the roles their
+            // work is reviewed by.
+            if (!permitted(req, res, 'response.override')) return;
             if (!justification || String(justification).trim().length < 15) {
                 return res.status(400).json({
                     error: "JUSTIFICATION_REQUIRED",
@@ -585,6 +599,7 @@ router.get("/:id/submit-check", async (req, res) => {
         if (!a) return res.status(404).json({ error: "That assessment does not exist" });
         req.tenantId = Number(a.tenant_id);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'assessment.perform')) return;
         res.json(await submitChecks(a));
     } catch (e) {
         logError("submit-check", e, req);

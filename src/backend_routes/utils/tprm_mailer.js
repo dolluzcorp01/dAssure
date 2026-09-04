@@ -159,7 +159,7 @@ async function deliver(mailId) {
 /** Retries queued and failed rows every 60 seconds. Started from server.js. */
 function startMailWorker() {
     if (DRIVER !== 'sendgrid' || !process.env.SENDGRID_API_KEY) {
-        console.log('📭 dTprm mail driver = outbox. Mail is queued in tprm_mail_outbox, not sent.');
+        console.log('📭 dAssure mail driver = outbox. Mail is queued in tprm_mail_outbox, not sent.');
         return;
     }
     const tick = async () => {
@@ -176,7 +176,7 @@ function startMailWorker() {
     };
     setInterval(tick, 60_000);
     tick();
-    console.log('📮 dTprm mail worker started (SendGrid).');
+    console.log('📮 dAssure mail worker started (SendGrid).');
 }
 
 /* ------------------------------------------------- what a preview must show */

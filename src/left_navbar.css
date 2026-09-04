@@ -18,26 +18,11 @@
 
 /* ------------------------------------------------------------- brand */
 
-/* Wordmark only. The eagle is carried on the login banner, where it has room
-   to be a mark; at 30px beside two lines of tracked caps it was just noise. */
+/* The lockup sizes itself - see LogoLock. All this owns is the space around it
+   and the hairline under it. */
 .tprm-nav-brand {
-    padding: 20px 20px 16px;
+    padding: 20px 20px 17px;
     border-bottom: 1px solid rgba(255, 255, 255, .08);
-}
-
-.tprm-nav-brandname {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 2.6px;
-    color: #fff;
-}
-
-.tprm-nav-brandsub {
-    font-size: 9px;
-    letter-spacing: 3.4px;
-    color: var(--tprm-gold);
-    font-weight: 700;
-    margin-top: 3px;
 }
 
 /* ------------------------------------------------------------ rows */

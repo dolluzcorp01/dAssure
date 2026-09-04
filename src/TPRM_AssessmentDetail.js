@@ -63,6 +63,7 @@ function TPRMAssessmentDetail() {
 
     const a = d.assessment;
     const frozen = ["approved", "issued", "closed"].includes(a.state);
+    const canOverride = hasPerm("response.override");
 
     const checkGate = async () => {
         try { setGate(await apiJson(`/api/tprm/assessments/${id}/submit-check`)); }
@@ -523,19 +524,32 @@ function TPRMAssessmentDetail() {
                                                 )}
 
                                                 <div className="tprm-q-opts">
-                                                    {POSITIONS.map(p2 => (
-                                                        <button
-                                                            key={p2}
-                                                            className={"tprm-posbtn " + POS_CLASS[p2]
-                                                                + (r && r.position === p2 ? " on" : "")}
-                                                            disabled={frozen || busy}
-                                                            onClick={() => (asserted && r.position !== p2)
-                                                                ? override(q.q_ref, p2)
-                                                                : setPosition(q.q_ref, p2)}
-                                                        >
-                                                            {p2}
-                                                        </button>
-                                                    ))}
+                                                    {POSITIONS.map(p2 => {
+                                                        /* Moving off what the supplier claimed is an
+                                                           override, and that is a separate permission
+                                                           from recording a position. Refusing on the
+                                                           button says so before the round trip. */
+                                                        const isOverride = asserted && r && r.position !== p2;
+                                                        return (
+                                                            <button
+                                                                key={p2}
+                                                                className={"tprm-posbtn " + POS_CLASS[p2]
+                                                                    + (r && r.position === p2 ? " on" : "")}
+                                                                disabled={frozen || busy
+                                                                    || (isOverride && !canOverride)}
+                                                                title={isOverride && !canOverride
+                                                                    ? "Changing the supplier's own answer is an "
+                                                                      + "override. Accept the assertion, or ask a "
+                                                                      + "lead reviewer to overturn it."
+                                                                    : undefined}
+                                                                onClick={() => isOverride
+                                                                    ? override(q.q_ref, p2)
+                                                                    : setPosition(q.q_ref, p2)}
+                                                            >
+                                                                {p2}
+                                                            </button>
+                                                        );
+                                                    })}
                                                 </div>
 
                                                 <div className="tprm-q-foot">

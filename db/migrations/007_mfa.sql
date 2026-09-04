@@ -1,11 +1,11 @@
 -- Two factor: a six digit code, emailed.
 --
--- Same model as the rest of the suite (dadmin.otpstorage), but dTprm keeps its
+-- Same model as the rest of the suite (dadmin.otpstorage), but dAssure keeps its
 -- own table rather than writing to that one. dadmin.otpstorage is UNIQUE on
 -- UserInput, so it holds one live code per email address across every dApp -
 -- a code requested in dTime would overwrite one requested here, and whichever
 -- app asked second would silently break the first. A table per app avoids that
--- entirely, and keeps a dTprm sign-in out of a shared row.
+-- entirely, and keeps a dAssure sign-in out of a shared row.
 --
 -- emp_id is VARCHAR(20): it holds a dadmin.employee.emp_id like 'DZIND148',
 -- not an integer - the same convention as banner.created_by.

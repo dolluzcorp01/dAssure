@@ -1,4 +1,4 @@
-// Permission context for dTprm.
+// Permission context for dAssure.
 //
 // Same shape as dAdmin's AccessContext, but the matrix is per CLIENT rather
 // than per role. A person can be Lead Assessor on one engagement and plain
@@ -10,7 +10,6 @@
 import React, {
     createContext, useContext, useEffect, useState, useCallback, useMemo,
 } from "react";
-import { useNavigate } from "react-router-dom";
 import { apiFetch } from "./api";
 
 const AccessContext = createContext({
@@ -54,7 +53,7 @@ export function AccessProvider({ children }) {
                 let reason = null;
                 if (res.status === 403) {
                     const body = await res.json().catch(() => null);
-                    reason = (body && body.message) || 'You have no engagement in dTprm.';
+                    reason = (body && body.message) || 'You have no engagement in dAssure.';
                 }
                 setUser(null); setTenants([]); setPermissions({}); setSetupMode(false);
                 setAccessError(reason);
@@ -120,31 +119,7 @@ export function AccessProvider({ children }) {
 
 export const useAccess = () => useContext(AccessContext);
 
-/**
- * Route guard. Wrap any route that needs a signed-in user, and optionally a
- * permission on the currently selected client.
- *
- *   <Route path="/Methodology" element={
- *     <ProtectedRoute perm="methodology.edit"><Methodology /></ProtectedRoute>
- *   } />
- */
-export function ProtectedRoute({ perm, fallback = "/login", children }) {
-    const { ready, user, hasPerm, accessError } = useAccess();
-    const navigate = useNavigate();
-
-    useEffect(() => {
-        if (!ready) return;
-        if (!user) {
-            // Carry the reason across so the sign-in screen can show it instead
-            // of looking like an ordinary signed-out state.
-            navigate("/login", { replace: true, state: accessError ? { message: accessError } : undefined });
-            return;
-        }
-        if (perm && !hasPerm(perm)) navigate(fallback, { replace: true });
-    }, [ready, user, perm, hasPerm, fallback, navigate, accessError]);
-
-    if (!ready) return null;
-    if (!user) return null;
-    if (perm && !hasPerm(perm)) return null;
-    return children;
-}
+// ProtectedRoute used to live here. It now sits in ProtectedRoute.js, where it
+// can render a real refusal page instead of redirecting a signed-in person to
+// the sign-in screen - which needs the navigation table, which needs this
+// context, so it could not import it from here.

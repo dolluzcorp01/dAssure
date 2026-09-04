@@ -13,10 +13,10 @@ const port = process.env.TPRM_PORT || 4009;
 
 const isProd = process.env.NODE_ENV === "production";
 
-// Explicit production origins. dTprm is a standalone product, so the list is
+// Explicit production origins. dAssure is a standalone product, so the list is
 // short: itself, plus Inside D which links to it from the app launcher.
 const allowedOrigins = [
-    'https://dtprm.dolluzcorp.com',
+    'https://dassure.dolluzcorp.com',
     'https://inside.dolluzcorp.com',
     'https://dadmin.dolluzcorp.com',
     'https://dolluzcorp.com',
@@ -83,11 +83,24 @@ app.get("/api/tprm/health", (req, res) => {
             logError('health check', err, req);
             return res.status(503).json({ ok: false, database: "down", error: err.code });
         }
-        res.json({ ok: true, service: "dTprm", database: "up", time: new Date().toISOString() });
+        res.json({ ok: true, service: "dAssure", database: "up", time: new Date().toISOString() });
     });
 });
 
-app.use('/TPRM_file_uploads', express.static(STORAGE_DIR));
+// Nothing serves this folder statically, and nothing should.
+//
+// It holds supplier evidence, completed questionnaires, tiering packs and
+// issued report PDFs - the most confidential material in the system - and
+// express.static would have handed any of it to anyone who had the URL, with
+// no cookie, no membership check and no audit row. The random component in a
+// storage key is there to stop collisions, not to be a password, and a key
+// that reaches a browser survives in history, logs and proxies long after the
+// person who saw it has left the engagement.
+//
+// Every file is reachable through a route that checks membership, checks the
+// permission and writes an audit row: evidence through
+// GET /api/tprm/evidence/:id/download, reports through
+// GET /api/tprm/reports/assessments/:id/pdf.
 
 // Anything under /api that did not match a route above
 app.use("/api", (_req, res) =>
@@ -119,7 +132,7 @@ process.on('uncaughtException', (e) => {
 });
 
 app.listen(port, () => {
-    console.log(`🚀 dTprm server running at http://localhost:${port}`);
+    console.log(`🚀 dAssure server running at http://localhost:${port}`);
     // Drains tprm_mail_outbox every 60s. Nothing is lost if SendGrid is down;
     // the row stays queued and is retried on the next tick.
     startMailWorker();

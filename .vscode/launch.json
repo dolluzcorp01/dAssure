@@ -1,10 +1,10 @@
 {
-    // F5 starts the dTprm API (server.js) on TPRM_PORT (4009) with the
+    // F5 starts the dAssure API (server.js) on TPRM_PORT (4009) with the
     // debugger attached. The first entry is what F5 runs by default.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "dTprm: backend (server.js)",
+            "name": "dAssure: backend (server.js)",
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/server.js",
@@ -17,7 +17,7 @@
             // with it - "Waiting for the debugger to disconnect..." then exit.
         },
         {
-            "name": "dTprm: frontend (react-scripts)",
+            "name": "dAssure: frontend (react-scripts)",
             "type": "node",
             "request": "launch",
             "runtimeExecutable": "npm",
@@ -27,7 +27,7 @@
             "skipFiles": ["<node_internals>/**"]
         },
         {
-            "name": "dTprm: run migrations",
+            "name": "dAssure: run migrations",
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/db/migrate.js",
@@ -39,10 +39,10 @@
     ],
     "compounds": [
         {
-            "name": "dTprm: full stack",
+            "name": "dAssure: full stack",
             "configurations": [
-                "dTprm: backend (server.js)",
-                "dTprm: frontend (react-scripts)"
+                "dAssure: backend (server.js)",
+                "dAssure: frontend (react-scripts)"
             ]
         }
     ]

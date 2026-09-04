@@ -1,8 +1,8 @@
 -- =====================================================================
---  dTprm  -  empty the database
+--  dAssure  -  empty the database
 --
 --  Section 1 clears everything the app RECORDS: engagements, suppliers,
---  assessments, findings, reports, logs. Run it and dTprm is a working,
+--  assessments, findings, reports, logs. Run it and dAssure is a working,
 --  empty installation.
 --
 --  Section 2 clears what the app was TAUGHT: the instrument library and

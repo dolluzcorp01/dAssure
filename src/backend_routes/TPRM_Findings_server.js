@@ -21,6 +21,7 @@ router.get("/:tenantId/list", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'finding.manage')) return;
 
         const status = req.query.status;
         const severity = req.query.severity;

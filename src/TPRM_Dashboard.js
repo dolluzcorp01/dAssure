@@ -45,7 +45,7 @@ function TPRMDashboard() {
                     </div>
                     <div className="tprm-empty-body">
                         {setupMode
-                            ? "There are no clients in dTprm. Onboard the first one and you become "
+                            ? "There are no clients in dAssure. Onboard the first one and you become "
                               + "its Practice Head automatically, which unlocks the rest of the app "
                               + "and lets you grant your team their roles."
                             : canStart

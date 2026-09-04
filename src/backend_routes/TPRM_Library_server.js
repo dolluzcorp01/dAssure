@@ -26,7 +26,14 @@ const db = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
 router.use(verifyJWT, tenantScope);
 
 /* ---------------------------------------------------- reference lookups */
-router.get("/sectors", async (_req, res) => {
+/* The library is reference data rather than client data, so these carry
+   case.comment - the marker for "works on engagements at all". That is
+   everybody except a Client Viewer, who has no reason to read the question
+   bank, the standards mapping or the scoring dimensions of a methodology they
+   are only shown the results of. With no client on the request, requirePerm
+   asks whether the caller holds it on any engagement, which is the right
+   question for a shared library. */
+router.get("/sectors", requirePerm('case.comment'), async (_req, res) => {
     try {
         const [rows] = await db.query(
             `SELECT s.sector_code, s.sector_name, s.sector_group,
@@ -56,7 +63,7 @@ router.get("/sectors", async (_req, res) => {
    whole instrument, and question.standards_mapping, written per question while
    authoring. Counting only the first under-reports badly, because in practice
    the mapping is made where the question is written. */
-router.get("/standards", async (_req, res) => {
+router.get("/standards", requirePerm('case.comment'), async (_req, res) => {
     try {
         const [[tot]] = await db.query(
             `SELECT COUNT(DISTINCT sector_code) AS n
@@ -83,7 +90,7 @@ router.get("/standards", async (_req, res) => {
     }
 });
 
-router.get("/domains", async (_req, res) => {
+router.get("/domains", requirePerm('case.comment'), async (_req, res) => {
     try {
         const [rows] = await db.query(
             `SELECT domain_code, domain_name, default_weight FROM control_domain ORDER BY sort_order`);
@@ -93,7 +100,7 @@ router.get("/domains", async (_req, res) => {
     }
 });
 
-router.get("/dimensions", async (_req, res) => {
+router.get("/dimensions", requirePerm('case.comment'), async (_req, res) => {
     try {
         const [rows] = await db.query(
             `SELECT dimension_code, dimension_name, default_weight, note
@@ -105,7 +112,7 @@ router.get("/dimensions", async (_req, res) => {
 });
 
 /* ------------------------------------------ one sector's question bank */
-router.get("/instruments/:sectorCode", async (req, res) => {
+router.get("/instruments/:sectorCode", requirePerm('case.comment'), async (req, res) => {
     try {
         const [versions] = await db.query(
             `SELECT instrument_version_id, version_no, status, frozen, change_note,

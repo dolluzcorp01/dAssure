@@ -5,7 +5,8 @@ require("dotenv").config({ quiet: true });
 const express = require("express");
 const getDBConnection = require('../../config/db');
 const { verifyJWT } = require('./TPRM_Login_server');
-const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds } = require('./utils/tprm_audit');
+const { audit, tenantScope, requireTenant, requirePerm, memberTenantIds,
+        permitted } = require('./utils/tprm_audit');
 const scoring = require('./utils/tprm_scoring');
 const { logError } = require('./utils/tprm_log');
 
@@ -304,6 +305,7 @@ router.get("/:tenantId/context", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'dashboard.view')) return;
 
         const [[t]] = await db.query(
             `SELECT t.tenant_id, t.tenant_code, t.tenant_name, t.trading_name,
@@ -353,6 +355,7 @@ router.get("/:tenantId/overview", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'dashboard.view')) return;
         const tid = req.tenantId;
 
         const one = async (sql, params) => {
@@ -415,6 +418,7 @@ router.get("/:tenantId/dashboard", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'dashboard.view')) return;
         const tid = req.tenantId;
 
         const [[kpi]] = await db.query(
@@ -460,6 +464,7 @@ router.get("/:tenantId/methodology", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'methodology.edit')) return;
 
         const [[m]] = await db.query(`SELECT * FROM tenant_methodology WHERE tenant_id=?`, [req.tenantId]);
         const [dimensions] = await db.query(
@@ -545,10 +550,50 @@ router.get("/roles", async (_req, res) => {
     }
 });
 
+/* The whole matrix, read from the two tables that decide it.
+ *
+ * Read rather than listed in the client, because a picture of the rules drawn
+ * by hand stops being true the moment the rules move, and a permission diagram
+ * that is quietly out of date is worse than none - people plan access around
+ * it. This is the same tprm_role_permission that requirePerm consults on every
+ * request, so what the modal shows is what the API will actually do.
+ *
+ * No permission gate: it describes capabilities in the abstract and names
+ * nobody. Who holds which role is the members list, which is gated. */
+router.get("/permission-matrix", async (_req, res) => {
+    try {
+        const [roles] = await db.query(
+            `SELECT role_code, role_name, rank_value, can_grant, description
+               FROM tprm_role ORDER BY rank_value DESC, role_code`);
+        const [perms] = await db.query(
+            `SELECT p.perm_key, p.label, p.category,
+                    GROUP_CONCAT(r.role_code ORDER BY r.rank_value DESC) AS role_codes
+               FROM tprm_permission p
+               LEFT JOIN tprm_role_permission rp
+                      ON rp.permission_id = p.permission_id AND rp.granted = 1
+               LEFT JOIN tprm_role r ON r.role_id = rp.role_id
+              GROUP BY p.permission_id, p.perm_key, p.label, p.category, p.sort_order
+              ORDER BY p.sort_order, p.perm_key`);
+        res.json({
+            roles,
+            permissions: perms.map(p => ({
+                perm_key: p.perm_key,
+                label: p.label,
+                category: p.category,
+                roles: p.role_codes ? String(p.role_codes).split(',') : [],
+            })),
+        });
+    } catch (e) {
+        logError("permission matrix", e, _req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
 router.get("/:tenantId/members", async (req, res) => {
     try {
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
+        if (!permitted(req, res, 'user.grant')) return;
 
         const [grants] = await db.query(
             `SELECT utr.id, utr.emp_id, utr.granted_time, r.role_id, r.role_code, r.role_name, r.rank_value

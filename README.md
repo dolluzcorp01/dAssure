@@ -1,4 +1,4 @@
-# dTprm — Third Party Risk Management Toolkit
+# dAssure — Third Party Risk Management Toolkit
 
 Internal Dolluz Corp tool for assessing our clients' suppliers. Staff-only:
 there is no public side, and suppliers never get an account. They receive an
@@ -13,8 +13,8 @@ plus matching `.css`.
 ## Installing into a fresh project
 
 ```bash
-npx create-react-app dtprm
-cd dtprm
+npx create-react-app dassure
+cd dassure
 # unzip this pack here, overwriting package.json, public/ and src/
 npm install
 ```
@@ -51,7 +51,7 @@ Creates the `dtprm` database and applies all five migrations in order. Safe to
 re-run — every statement is `IF NOT EXISTS`, `INSERT IGNORE` or
 `ON DUPLICATE KEY UPDATE`.
 
-`dTprm` reads `dadmin.employee` for sign-in and owns everything in `tprm`.
+`dAssure` reads `dadmin.employee` for sign-in and owns everything in `tprm`.
 There is no cross-database foreign key on `emp_id` because MySQL does not
 support them; the column is a plain `BIGINT` by design.
 
@@ -185,8 +185,8 @@ nginx, matching the other dApps:
 
 ```nginx
 server {
-    server_name dtprm.dolluzcorp.com;
-    root /var/www/dtprm/build;
+    server_name dassure.dolluzcorp.com;
+    root /var/www/dassure/build;
     index index.html;
 
     location / { try_files $uri /index.html; }
@@ -202,12 +202,12 @@ server {
     # Rate limiting lives here rather than in Express. express-rate-limit v7
     # does not export ipKeyGenerator and broke every rate-limited endpoint in
     # dShield; there is no reason to repeat that in Node.
-    limit_req_zone $binary_remote_addr zone=dtprm:10m rate=30r/m;
+    limit_req_zone $binary_remote_addr zone=dassure:10m rate=30r/m;
 }
 ```
 
 ```bash
-pm2 start server.js --name dtprm
+pm2 start server.js --name dassure
 pm2 save
 ```
 

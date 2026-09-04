@@ -1,3 +1,128 @@
 /* Uses the shared table and modal chrome from App.css. */
 
 .tprm-page .tprm-table td .tprm-chip { vertical-align: middle; }
+
+/* ------------------------------------------------- the permission matrix */
+
+/* The affordance for it: a quiet circle beside the card title, and the words
+   next to it. An "i" on its own is only obvious to whoever put it there. */
+.tprm-infobtn {
+    margin-left: 10px;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    border-radius: 50%;
+    border: 1px solid var(--tprm-line);
+    background: #fff;
+    color: var(--tprm-muted);
+    font-size: 11px;
+    font-weight: 700;
+    font-style: italic;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+}
+
+.tprm-infobtn:hover {
+    border-color: var(--tprm-gold);
+    color: var(--tprm-ink);
+}
+
+.tprm-matrix-open {
+    margin-left: 7px;
+    font-size: 11.5px;
+    letter-spacing: .02em;
+    color: var(--tprm-muted);
+    cursor: pointer;
+    text-transform: none;
+}
+
+.tprm-matrix-open:hover { color: var(--tprm-ink); text-decoration: underline; }
+
+/* Nineteen rows by six columns. The capability column is the only one that
+   needs reading width; the rest are ticks, so they are narrow and centred, and
+   the header stays put while the rows scroll under it. */
+.tprm-matrix-wrap { padding: 22px 26px; }
+
+.tprm-matrix {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.tprm-matrix th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--tprm-wash);
+    border-bottom: 1px solid var(--tprm-line);
+    padding: 9px 8px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--tprm-faint);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.tprm-matrix th:first-child { text-align: left; padding-left: 12px; width: 46%; }
+
+.tprm-matrix td {
+    border-bottom: 1px solid var(--tprm-line);
+    padding: 9px 8px;
+    font-size: 12.5px;
+    color: var(--tprm-body);
+}
+
+.tprm-matrix td:first-child {
+    padding-left: 12px;
+    font-weight: 600;
+}
+
+.tprm-matrix tbody tr:hover td { background: var(--tprm-wash); }
+
+/* The permission key next to the sentence. The label is for the person
+   reading; the key is what they will find in the code and in the audit rows. */
+.tprm-matrix-key {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--tprm-mono);
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--tprm-faint);
+}
+
+.tprm-matrix-cell {
+    text-align: center;
+    font-size: 15px;
+    line-height: 1;
+    color: var(--tprm-line);
+}
+
+.tprm-matrix-cell.yes { font-weight: 700; }
+
+.tprm-matrix-legend {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 24px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--tprm-line);
+    font-size: 12px;
+    color: var(--tprm-body);
+}
+
+.tprm-matrix-leg { display: flex; align-items: center; gap: 7px; }
+
+.tprm-matrix-dot {
+    width: 9px;
+    height: 9px;
+    flex: 0 0 9px;
+    border-radius: 50%;
+}
+
+.tprm-matrix-rank {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--tprm-faint);
+    white-space: nowrap;
+}

@@ -1390,13 +1390,13 @@ function StepDistribute({ tenantId, tenant, onChanged }) {
     };
 
     /* One supplier, sent by hand from somebody's own mailbox. Recorded as
-       'manual' rather than 'email' so the trail does not claim dTprm delivered
+       'manual' rather than 'email' so the trail does not claim dAssure delivered
        something it never touched. */
     const markOneSent = async (r) => {
         const ok = await tprmAlert.confirm(
             `Record ${r.third_party_name} as sent by hand?`,
             "Use this when you took the workbook out of the ZIP and emailed it "
-            + "yourself. dTprm did not send it, so it is recorded as sent manually.",
+            + "yourself. dAssure did not send it, so it is recorded as sent manually.",
             "Yes, I sent it");
         if (!ok) return;
         setSendingId(r.assessment_id);
@@ -1614,7 +1614,7 @@ function StepDistribute({ tenantId, tenant, onChanged }) {
                                         >
                                             <FaPaperPlane />
                                         </button>
-                                        {/* Sent from your own mailbox rather than by dTprm.
+                                        {/* Sent from your own mailbox rather than by dAssure.
                                             Offered only while the row is still waiting -
                                             once it has a state, that state is the record. */}
                                         {!alreadyIssued(r) && (
@@ -1623,7 +1623,7 @@ function StepDistribute({ tenantId, tenant, onChanged }) {
                                                 disabled={busy || sendingId != null || remindingId != null
                                                     || !!blockedReason(r)}
                                                 title={blockedReason(r)
-                                                    || "I sent this one myself, outside dTprm"}
+                                                    || "I sent this one myself, outside dAssure"}
                                                 onClick={() => markOneSent(r)}
                                             >
                                                 Mark sent

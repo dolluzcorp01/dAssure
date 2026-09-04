@@ -1,5 +1,5 @@
 -- =====================================================================
---  dTprm  Migration 012   A published baseline instrument for every sector
+--  dAssure  Migration 012   A published baseline instrument for every sector
 --
 --  Until now only GENERIC carried a published instrument, so only a supplier
 --  classified as Cross-Sector Baseline could be tiered or assessed at all.
