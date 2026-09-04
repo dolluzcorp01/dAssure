@@ -25,7 +25,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const getDBConnection = require('../../config/db');
 const { grantsFor, audit, inSetupMode, tenantScope, requireTenant } = require('./utils/tprm_audit');
-const { logError, logSignInCode } = require('./utils/tprm_log');
+const { logError } = require('./utils/tprm_log');
 const mailer = require('./utils/tprm_mailer');
 const {
     OTP_TTL_SECONDS, RESEND_COOLDOWN_SECONDS, MAX_ATTEMPTS, MAX_SENDS,
@@ -136,40 +136,22 @@ async function sendOtp(req, employee, sendNo = 1) {
             (req.headers['user-agent'] || '').slice(0, 300),
         ]);
 
-    /* ================= OTP_MAIL_DISABLED ==================================
-       The sign-in code is NOT being emailed. It is printed to the server
-       terminal instead, and that is the only copy of it.
-
-       To put mail back: search this file for OTP_MAIL_DISABLED, delete the
-       logSignInCode call below and uncomment the block under it. Nothing else
-       changes - the template, the outbox row and the mail_id column are all
-       still wired, they are just not being called.
-       ===================================================================== */
-    logSignInCode({
+    // The code goes by mail and is never returned to the caller. With
+    // driver=outbox the row is written to tprm_mail_outbox and printed in the
+    // terminal, code and all, which is how it is read in development.
+    const t = mailer.templates.renderLoginOtpEmail(
+        { code, minutes: Math.round(OTP_TTL_SECONDS / 60) });
+    const mailId = await mailer.queue({
+        to: employee.emp_mail_id,
+        subject: t.subject,
+        body: t.text,
+        html: t.html,
+        kind: 'login_otp',
         empId: employee.emp_id,
-        email: employee.emp_mail_id,
-        code,
-        seconds: OTP_TTL_SECONDS,
+        expires: new Date(Date.now() + OTP_TTL_SECONDS * 1000).toTimeString().slice(0, 8),
     });
-
-    // --- OTP_MAIL_DISABLED: uncomment from here -------------------------
-    // const t = mailer.templates.renderLoginOtpEmail(
-    //     { code, minutes: Math.round(OTP_TTL_SECONDS / 60) });
-    // // The mail is queued, never awaited into the response beyond this: with
-    // // driver=outbox it is written to tprm_mail_outbox and printed in the
-    // // terminal, code and all, which is how it is read in development.
-    // const mailId = await mailer.queue({
-    //     to: employee.emp_mail_id,
-    //     subject: t.subject,
-    //     body: t.text,
-    //     html: t.html,
-    //     kind: 'login_otp',
-    //     empId: employee.emp_id,
-    //     expires: new Date(Date.now() + OTP_TTL_SECONDS * 1000).toTimeString().slice(0, 8),
-    // });
-    // await tprm.query(`UPDATE tprm_login_otp SET mail_id = ? WHERE otp_id = ?`,
-    //     [mailId, ins.insertId]);
-    // --- OTP_MAIL_DISABLED: to here ------------------------------------
+    await tprm.query(`UPDATE tprm_login_otp SET mail_id = ? WHERE otp_id = ?`,
+        [mailId, ins.insertId]);
 
     return {
         maskedEmail: maskEmail(employee.emp_mail_id),

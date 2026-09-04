@@ -12,28 +12,68 @@ const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
 
-const LOGO = path.join(__dirname, '..', '..', 'assets', 'img', 'logo_eagle.png');
+const LOGO = path.join(__dirname, '..', '..', 'assets', 'img', 'DOLLUZ_CORP_reversed.png');
 const NAVY = 'FF0D1B2A';
 const GOLD = 'FFC9A227';
 const LIGHT = 'FFFBFAF7';
 const LINE = 'FFDCE3EB';
 
+// The header band.
+//
+// DOLLUZ_CORP_reversed is the full lockup - eagle plus wordmark - drawn in
+// WHITE ink, so it only reads on a dark ground. That is why row 1 is filled
+// navy rather than left white: the reversed artwork on a white sheet is a gold
+// bird and nothing else. It also matches the navy brand band every other
+// Dolluz Corp export carries (see src/utils/tprmExport.js).
+//
+// The artwork is 3805x994. Sizing it by height and deriving the width keeps the
+// lockup in proportion - the old code forced the eagle into a 150x38 box, which
+// squashed it flat.
+const LOGO_ASPECT = 3805 / 994;
+const LOGO_H = 22;
+const LOGO_W = Math.round(LOGO_H * LOGO_ASPECT);
+
+// The title sits in the same merged cell the logo floats over, pushed clear of
+// it by an indent rather than by starting in some column further along. Column
+// widths differ on every sheet, so anchoring the title to a column letter is
+// what put half a page between the mark and the heading. An indent is measured
+// in characters of the cell's own font, so it holds wherever the columns land.
+const LOGO_PAD_PX = 8;
+const TITLE_INDENT = Math.ceil((LOGO_PAD_PX + LOGO_W + 20) / 8);
+
+// One pixel in EMU, the unit a drawing anchor is stored in.
+const EMU = 9525;
+
 function brand(wb, ws, title, subtitle) {
-    ws.getRow(1).height = 46;
-    ws.mergeCells('A1:D1');
+    ws.getRow(1).height = 34;
+    ws.mergeCells('A1:H1');
+
+    const t = ws.getCell('A1');
+    t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
+    t.value = title;
+    t.font = { name: 'Calibri', size: 13, bold: true, color: { argb: 'FFFFFFFF' } };
+    t.alignment = { vertical: 'middle', indent: TITLE_INDENT };
+
     if (fs.existsSync(LOGO)) {
         const id = wb.addImage({ filename: LOGO, extension: 'png' });
-        ws.addImage(id, { tl: { col: 0.25, row: 0.35 }, ext: { width: 150, height: 38 } });
+        // Anchored in absolute pixels, not as a fraction of column A. The
+        // fractional form is scaled by whatever that column happens to be
+        // wide, so the same logo sat 9px in on the questionnaire and 29px in
+        // on the intake template, where it ran into the title.
+        ws.addImage(id, {
+            tl: {
+                nativeCol: 0, nativeColOff: LOGO_PAD_PX * EMU,
+                nativeRow: 0, nativeRowOff: 7 * EMU,
+            },
+            ext: { width: LOGO_W, height: LOGO_H },
+        });
     }
-    const t = ws.getCell('E1');
-    t.value = title;
-    t.font = { name: 'Calibri', size: 14, bold: true, color: { argb: NAVY } };
-    t.alignment = { vertical: 'middle' };
-    ws.mergeCells('E1:H1');
-    const s = ws.getCell('E2');
+
+    const s = ws.getCell('A2');
     s.value = subtitle;
     s.font = { name: 'Calibri', size: 9, color: { argb: 'FF5E6E80' } };
-    ws.mergeCells('E2:H2');
+    s.alignment = { vertical: 'middle' };
+    ws.mergeCells('A2:H2');
     ws.getRow(2).height = 16;
 }
 
