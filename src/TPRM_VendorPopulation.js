@@ -426,8 +426,14 @@ const INTAKE_COLUMNS = [
 
 function StepTemplate({ tenantId, tenant, goto }) {
     const [unit, setUnit] = useState("");
-    const [to, setTo] = useState("");
+    const clientContact = (tenant && tenant.contact_email) || "";
+    const [to, setTo] = useState(clientContact);
     const [busy, setBusy] = useState(false);
+
+    /* Re-seeds when the selected client changes. useState's initialiser runs
+       once, so without this, switching client in the top bar leaves the
+       previous client's contact sitting in the box - and this box sends. */
+    useEffect(() => { setTo(clientContact); }, [clientContact]);
 
     const download = async () => {
         setBusy(true);
@@ -1139,7 +1145,16 @@ function StepTiering({ tenantId, onChanged, goto }) {
     const fileRef = useRef(null);
     const [busy, setBusy] = useState(false);
     const [sending, setSending] = useState(false);
-    const [to, setTo] = useState("");
+    // The contact recorded at onboarding, so the address is not retyped.
+    const { tenant } = useAccess();
+    const clientContact = (tenant && tenant.contact_email) || "";
+    const [to, setTo] = useState(clientContact);
+
+    /* Re-seeds when the selected client changes. useState's initialiser runs
+       once, so without this, switching client in the top bar leaves the
+       previous client's contact sitting in the box - and this box sends. */
+    useEffect(() => { setTo(clientContact); }, [clientContact]);
+
     const [result, setResult] = useState(null);
     const [ready, setReady] = useState(null);
     const resultRef = useRevealOnResult(result);

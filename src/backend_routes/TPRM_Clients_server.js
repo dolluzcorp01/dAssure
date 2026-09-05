@@ -49,7 +49,7 @@ router.post("/create", requirePerm('client.create'), async (req, res) => {
     const conn = await db.getConnection();
     try {
         const { tenantCode, tenantName, defaultSector, tradingName, context,
-            weights, tier1, tier2, sla, team } = req.body;
+            contactName, contactEmail, weights, tier1, tier2, sla, team } = req.body;
         if (!tenantCode || !tenantName) {
             return res.status(400).json({ error: "Client name and code are required" });
         }
@@ -58,6 +58,19 @@ router.post("/create", requirePerm('client.create'), async (req, res) => {
             return res.status(400).json({
                 error: "BAD_CODE",
                 message: "Client code must be 2 to 8 characters, letters and digits only. It appears in every document reference.",
+            });
+        }
+
+        /* The client's own contact. Not a login - there is no external
+           principal in dAssure - but it is the address every message that
+           has to reach the client is sent to, so it is worth holding once
+           rather than retyping at each of the nine stages. Optional here so
+           an existing caller is not broken; the wizard insists on it. */
+        const contact = String(contactEmail || '').trim().toLowerCase();
+        if (contact && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact)) {
+            return res.status(400).json({
+                error: "BAD_CONTACT_EMAIL",
+                message: "That is not a valid email address for the client contact.",
             });
         }
 
@@ -71,9 +84,11 @@ router.post("/create", requirePerm('client.create'), async (req, res) => {
 
         const [r] = await conn.query(
             `INSERT INTO tenant
-               (tenant_code, tenant_name, trading_name, default_sector, context_json, created_by)
-             VALUES (?,?,?,?,?,?)`,
+               (tenant_code, tenant_name, trading_name, contact_name, contact_email,
+                default_sector, context_json, created_by)
+             VALUES (?,?,?,?,?,?,?,?)`,
             [code, String(tenantName).trim(), (tradingName || '').trim() || null,
+             String(contactName || '').trim() || null, contact || null,
              defaultSector || null, context ? JSON.stringify(context) : null, req.emp_id]
         );
         const tenantId = r.insertId;
@@ -170,7 +185,9 @@ router.post("/create", requirePerm('client.create'), async (req, res) => {
         await conn.commit();
         await audit(req, {
             action: 'client.created', entity: 'tenant', entityId: tenantId,
-            after: { code, name: tenantName, tradingName: tradingName || null, context: context || null },
+            after: { code, name: tenantName, tradingName: tradingName || null,
+                     contactName: contactName || null, contactEmail: contact || null,
+                     context: context || null },
             tenantId,
         });
         for (const g of granted) {
@@ -309,6 +326,7 @@ router.get("/:tenantId/context", async (req, res) => {
 
         const [[t]] = await db.query(
             `SELECT t.tenant_id, t.tenant_code, t.tenant_name, t.trading_name,
+                    t.contact_name, t.contact_email,
                     t.default_sector, t.context_json, t.status, s.sector_name
                FROM tenant t
                LEFT JOIN sector s ON s.sector_code = t.default_sector
@@ -327,6 +345,8 @@ router.get("/:tenantId/context", async (req, res) => {
             code: t.tenant_code,
             name: t.tenant_name,
             tradingName: t.trading_name,
+            contactName: t.contact_name,
+            contactEmail: t.contact_email,
             sectorCode: t.default_sector,
             sectorName: t.sector_name || t.default_sector || null,
             status: t.status,
@@ -585,6 +605,102 @@ router.get("/permission-matrix", async (_req, res) => {
         });
     } catch (e) {
         logError("permission matrix", e, _req);
+        res.status(500).json({ error: "Database error" });
+    }
+});
+
+/* Change one cell of the permission matrix.
+ *
+ * The screen has always claimed the matrix is editable and that permissions
+ * are data rather than code. They were data, but nothing wrote them, so the
+ * claim was false and a change meant a migration and a deploy.
+ *
+ * Two guards, and the second is the one that matters:
+ *
+ *   Practice Head cannot be edited at all. It is the backstop role - the only
+ *   one holding permission.edit - so allowing it to be stripped would let one
+ *   careless click leave a system nobody can administer, with no route back
+ *   that does not involve SQL on the box.
+ *
+ *   A permission is only ever granted or revoked for a role, never for a
+ *   person. Personal exceptions are how a matrix stops describing reality.
+ *
+ * Not scoped to a client: tprm_role_permission is global, so this is what a
+ * role means everywhere. requirePerm without a tenant on the request accepts
+ * the permission held anywhere, which is right - a Practice Head on any
+ * engagement owns the practice's role definitions.
+ */
+router.put("/permission-matrix", requirePerm('permission.edit'), async (req, res) => {
+    try {
+        const { roleCode, permKey, granted } = req.body || {};
+        if (!roleCode || !permKey || typeof granted !== 'boolean') {
+            return res.status(400).json({
+                error: "BAD_REQUEST",
+                message: "roleCode, permKey and granted are all required",
+            });
+        }
+        if (String(roleCode).toUpperCase() === 'PH') {
+            return res.status(403).json({
+                error: "PRACTICE_HEAD_LOCKED",
+                message: "Practice Head holds every capability by definition. It is the role that "
+                    + "edits this matrix, so it cannot be edited here - removing something from it "
+                    + "could leave the system with nobody able to put it back.",
+            });
+        }
+
+        const [[role]] = await db.query(
+            `SELECT role_id, role_code, role_name FROM tprm_role WHERE role_code = ?`, [roleCode]);
+        if (!role) return res.status(404).json({ error: "ROLE_UNKNOWN", message: "That role does not exist" });
+
+        const [[perm]] = await db.query(
+            `SELECT permission_id, perm_key, label FROM tprm_permission WHERE perm_key = ?`, [permKey]);
+        if (!perm) return res.status(404).json({ error: "PERM_UNKNOWN", message: "That capability does not exist" });
+
+        const [[before]] = await db.query(
+            `SELECT granted FROM tprm_role_permission WHERE role_id = ? AND permission_id = ?`,
+            [role.role_id, perm.permission_id]);
+        const had = !!(before && Number(before.granted) === 1);
+        if (had === granted) return res.json({ success: true, unchanged: true });
+
+        /* Granted rows are written; revoked rows are deleted rather than set
+           to granted = 0. The absence of a row is what every other role's
+           absence looks like, and two ways of saying "no" in one table is how
+           a matrix starts disagreeing with itself - the same reasoning as
+           migration 018. */
+        if (granted) {
+            await db.query(
+                `INSERT INTO tprm_role_permission (role_id, permission_id, granted, edited_by)
+                 VALUES (?,?,1,?)
+                 ON DUPLICATE KEY UPDATE granted = 1, edited_by = VALUES(edited_by)`,
+                [role.role_id, perm.permission_id, req.emp_id]);
+        } else {
+            await db.query(
+                `DELETE FROM tprm_role_permission WHERE role_id = ? AND permission_id = ?`,
+                [role.role_id, perm.permission_id]);
+        }
+
+        /* tprm_role.can_grant is the same fact said a second way - it is what
+           the role list prints in its "Can grant" column. Kept in step, or the
+           screen claims a role grants access on the page where it no longer
+           can. Again the reasoning from 018. */
+        if (perm.perm_key === 'user.grant') {
+            await db.query(`UPDATE tprm_role SET can_grant = ? WHERE role_id = ?`,
+                [granted ? 1 : 0, role.role_id]);
+        }
+
+        await audit(req, {
+            action: granted ? 'permission.granted' : 'permission.revoked',
+            entity: 'tprm_role_permission', entityId: role.role_code,
+            before: { role: role.role_code, permission: perm.perm_key, granted: had },
+            after: { role: role.role_code, permission: perm.perm_key, granted },
+        });
+
+        res.json({
+            success: true,
+            message: `${perm.label} ${granted ? 'granted to' : 'removed from'} ${role.role_name}`,
+        });
+    } catch (e) {
+        logError("permission matrix edit", e, req);
         res.status(500).json({ error: "Database error" });
     }
 });

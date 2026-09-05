@@ -72,6 +72,7 @@ function TPRMClientWizard() {
 
     const [d, setD] = useState({
         legal: "", trading: "", code: "", sector: "",
+        contactName: "", contactEmail: "",
         sec2: [], regions: ["Oman"], regs: [], scale: SCALES[2],
         dt: ["Personal data", "Operational technology"],
         weights: null, t1: 2.30, t2: 1.60,
@@ -109,8 +110,14 @@ function TPRMClientWizard() {
     const balanced = Math.abs(total - 1) < 0.001;
     const tiersOk = Number(d.t1) > Number(d.t2);
 
+    // The intake template is step one of the pipeline and it goes to the
+    // client, so a client with nobody to send it to is a client somebody has
+    // to come back to. Insisted on here rather than at the point of sending.
+    const contactOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.contactEmail.trim());
+
     const canNext =
-        step === 0 ? Boolean(d.legal.trim() && /^[A-Z0-9]{2,8}$/.test(d.code) && d.sector)
+        step === 0 ? Boolean(d.legal.trim() && /^[A-Z0-9]{2,8}$/.test(d.code) && d.sector
+            && contactOk)
             : step === 2 ? balanced && tiersOk
                 : true;
 
@@ -129,6 +136,8 @@ function TPRMClientWizard() {
                 weights,
                 tier1: Number(d.t1),
                 tier2: Number(d.t2),
+                contactName: d.contactName.trim(),
+                contactEmail: d.contactEmail.trim(),
                 team: d.team.map(t => ({ empId: t.empId, roleCode: t.roleCode })),
             });
             await refetch();
@@ -222,6 +231,34 @@ function TPRMClientWizard() {
                             />
                             <div className="tprm-hint">
                                 Used on reports where it differs from the legal entity
+                            </div>
+                        </div>
+
+                        <div className="tprm-field">
+                            <label htmlFor="wz-contact-name">Client contact</label>
+                            <input
+                                id="wz-contact-name" className="tprm-input" value={d.contactName}
+                                placeholder="Ahmed Shaikh"
+                                onChange={e => set("contactName", e.target.value)}
+                            />
+                            <div className="tprm-hint">
+                                Who at the client this engagement runs through
+                            </div>
+                        </div>
+
+                        <div className="tprm-field">
+                            <label htmlFor="wz-contact-email">
+                                Client contact email <b className="req">*</b>
+                            </label>
+                            <input
+                                id="wz-contact-email" className="tprm-input" type="email"
+                                value={d.contactEmail} placeholder="name@client.com"
+                                onChange={e => set("contactEmail", e.target.value)}
+                            />
+                            <div className="tprm-hint">
+                                Where the intake template, the tiering pack and issued reports are
+                                sent. Held once here rather than retyped at every stage. This is not
+                                a login - client users cannot sign in to dAssure.
                             </div>
                         </div>
 
@@ -540,6 +577,9 @@ function TPRMClientWizard() {
                         {[
                             ["Legal entity", d.legal || "Not set", 0],
                             ["Trading name", d.trading || "Same as the legal entity", 0],
+                            ["Client contact", d.contactName.trim()
+                                ? `${d.contactName.trim()}, ${d.contactEmail.trim()}`
+                                : d.contactEmail.trim() || "Not set", 0],
                             ["Client code", d.code || "Not set", 0],
                             ["Primary sector", sectorName || "Not set", 0],
                             ["Regulatory overlay", overlay.join(", "), 0],

@@ -58,6 +58,12 @@ const MESSAGES = {
     INVALID_CREDENTIALS: SIGNIN_FAILED,
     MFA_INVALID: "That code is not correct.",
     RESEND_LIMIT: "Too many codes sent. Sign in again to start over.",
+    OTP_EXPIRED: "That code has expired. Ask for another one.",
+    OTP_BURNED: "That code is no longer usable. Start again and we will send a new one.",
+    OTP_NOT_SENT: "No code is waiting on that address. Start again.",
+    RESET_TOKEN_INVALID: "That reset attempt has expired. Start again.",
+    SET_TOKEN_INVALID: "That took too long. Enter your address again for a fresh code.",
+    PASSWORD_MISMATCH: "The two passwords do not match.",
     NO_ENGAGEMENT:
         "Your account is valid, but you have not been assigned to a client engagement in dAssure yet. "
         + "Ask a Practice Head or Engagement Manager to grant you a role.",
@@ -86,6 +92,18 @@ function TPRMLogin() {
     // Seconds left on the code the server issued. Counted down here rather
     // than guessed: the value comes from the same route that created it.
     const [expiresIn, setExpiresIn] = useState(0);
+    /* The reset walk. Two typed tokens, because the browser has to cross two
+       gaps: address to code, and code to new password. resetToken says an
+       address was submitted; setToken is minted only once a code is redeemed,
+       and only it opens the last step. */
+    const [resetToken, setResetToken] = useState(null);
+    const [setToken, setSetToken] = useState(null);
+    const [newPass, setNewPass] = useState("");
+    const [confirmPass, setConfirmPass] = useState("");
+    const [showNew, setShowNew] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+    const [maskedReset, setMaskedReset] = useState("");
+    const [pwHelp, setPwHelp] = useState("");
 
     const [err, setErr] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -135,7 +153,7 @@ function TPRMLogin() {
 
     // One interval, running only while there is something left to count.
     useEffect(() => {
-        if (step !== "mfa" || expiresIn <= 0) return;
+        if ((step !== "mfa" && step !== "forgotCode") || expiresIn <= 0) return;
         const t = setInterval(() => setExpiresIn(v => (v > 0 ? v - 1 : 0)), 1000);
         return () => clearInterval(t);
     }, [step, expiresIn]);
@@ -145,6 +163,8 @@ function TPRMLogin() {
     const backToLogin = (message) => {
         setStep("login");
         setMfaToken(null); setCode(""); setExpiresIn(0); setPassword("");
+        setResetToken(null); setSetToken(null);
+        setNewPass(""); setConfirmPass(""); setMaskedReset("");
         setErr(message || null);
     };
 
@@ -248,47 +268,221 @@ function TPRMLogin() {
         + `${p.gradient_to || "#1E3350"} 100%)`;
 
     /* ----------------------------------------------- forgot password */
-    if (step === "forgot" || step === "forgotSent") {
-        const sent = step === "forgotSent";
+    /*
+     * Three steps: address, mailed code, new password. The same two minute
+     * code the sign-in second factor uses, from the same table but marked
+     * with a different purpose, so a reset code can never be redeemed as a
+     * sign-in and the other way round.
+     *
+     * The password being set lives in dadmin.employee, which every Dolluz
+     * Corp app authenticates against - so this changes it for all of them,
+     * and the screen says so rather than letting somebody find out later.
+     */
+    const clock = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+
+    const startReset = async (e) => {
+        e.preventDefault();
+        setBusy(true); setErr(null);
+        try {
+            const r = await apiPost("/api/tprm/login/forgot/start", { username });
+            setResetToken(r.resetToken);
+            setMaskedReset(r.maskedEmail || "");
+            setExpiresIn(Number(r.expiresIn) || 0);
+            setCode("");
+            setStep("forgotCode");
+        } catch (ex) {
+            setErr(ex.message || "Could not start the reset");
+        } finally { setBusy(false); }
+    };
+
+    const verifyResetCode = async (e) => {
+        e.preventDefault();
+        setBusy(true); setErr(null);
+        try {
+            const r = await apiPost("/api/tprm/login/forgot/verify", { resetToken, code });
+            setSetToken(r.setToken);
+            setPwHelp(r.passwordHelp || "");
+            setNewPass(""); setConfirmPass("");
+            setStep("forgotPass");
+        } catch (ex) {
+            setErr(MESSAGES[ex.message] || ex.message || "That code was not accepted");
+            if (ex.message === "OTP_BURNED" || ex.message === "OTP_EXPIRED") {
+                setStep("forgot");
+                setExpiresIn(0);
+            }
+        } finally { setBusy(false); }
+    };
+
+    const saveNewPassword = async (e) => {
+        e.preventDefault();
+        setBusy(true); setErr(null);
+        try {
+            const r = await apiPost("/api/tprm/login/forgot/reset",
+                { setToken, password: newPass, confirm: confirmPass });
+            backToLogin(r.message || "Password changed. Sign in with your new password.");
+        } catch (ex) {
+            // The rule is long, so a rejected password shows the rule rather
+            // than a code. Everything else goes through the shared map.
+            setErr(ex.message === "PASSWORD_WEAK"
+                ? (pwHelp || "That password does not meet the rule.")
+                : MESSAGES[ex.message] || ex.message || "Could not change the password");
+            if (ex.message === "SET_TOKEN_INVALID") setStep("forgot");
+        } finally { setBusy(false); }
+    };
+
+    /* -------------------------------------------------- 1. the address */
+    if (step === "forgot") {
         return (
             <Centered
-                title={sent ? "Check your inbox" : "Forgot password"}
-                sub={sent
-                    ? "If that address belongs to an account, a reset link is on its way. The link expires in 30 minutes and can be used once."
-                    : "Enter your work email and we will send a single use reset link."}
+                title="Forgot password"
+                sub="Enter your work email and we will send a six digit code."
             >
-                {!sent ? (
-                    <form onSubmit={e => { e.preventDefault(); setStep("forgotSent"); }}>
-                        <div className="tprm-field">
-                            <label htmlFor="tprm-forgot-email">Work email</label>
-                            <input
-                                id="tprm-forgot-email"
-                                className="tprm-input"
-                                type="email"
-                                autoFocus
-                                value={username}
-                                placeholder="name@dolluzcorp.com"
-                                onChange={e => setUsername(e.target.value)}
-                            />
-                        </div>
-                        <button type="submit" className="tprm-btn primary wide" disabled={!username}>
-                            Send reset link
-                        </button>
-                        <div className="tprm-note" style={{ marginTop: 18 }}>
-                            The confirmation is identical whether or not the address exists, so this
-                            screen cannot be used to discover valid accounts.
-                        </div>
-                    </form>
-                ) : (
-                    <button className="tprm-btn wide" onClick={() => backToLogin(null)}>
-                        Back to sign in
+                <form onSubmit={startReset}>
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-forgot-email">Work email</label>
+                        <input
+                            id="tprm-forgot-email"
+                            className="tprm-input"
+                            type="email"
+                            autoFocus
+                            autoComplete="username"
+                            value={username}
+                            placeholder="name@dolluzcorp.com"
+                            onChange={e => { setUsername(e.target.value); setErr(null); }}
+                        />
+                    </div>
+                    {err && <div className="tprm-alert error">{err}</div>}
+                    <button type="submit" className="tprm-btn primary wide"
+                        disabled={!username || busy}>
+                        {busy ? "Sending..." : "Send code"}
                     </button>
-                )}
+                    <div className="tprm-note" style={{ marginTop: 18 }}>
+                        The reply is identical whether or not the address exists, so this screen
+                        cannot be used to find out who has an account.
+                    </div>
+                </form>
                 <div className="tprm-access-link">
                     <button className="tprm-linkbtn" onClick={() => backToLogin(null)}>
                         Back to sign in
                     </button>
                 </div>
+            </Centered>
+        );
+    }
+
+    /* ----------------------------------------------------- 2. the code */
+    if (step === "forgotCode") {
+        const dead = expiresIn <= 0;
+        return (
+            <Centered
+                title="Enter the code"
+                sub={`We sent a six digit code to ${maskedReset}. It expires in two minutes.`}
+            >
+                <form onSubmit={verifyResetCode}>
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-reset-code">Six digit code</label>
+                        <input
+                            id="tprm-reset-code"
+                            className="tprm-input tprm-otp"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            autoFocus
+                            maxLength={6}
+                            value={code}
+                            placeholder="000000"
+                            onChange={e => {
+                                setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                                setErr(null);
+                            }}
+                        />
+                    </div>
+                    <div className={"tprm-otp-clock" + (dead ? " out" : expiresIn <= 30 ? " low" : "")}>
+                        {dead
+                            ? "That code has expired. Ask for another."
+                            : <>Expires in <span className="mono">{clock(expiresIn)}</span></>}
+                    </div>
+                    {err && <div className="tprm-alert error">{err}</div>}
+                    <button type="submit" className="tprm-btn primary wide"
+                        disabled={code.length !== 6 || dead || busy}>
+                        {busy ? "Checking..." : "Continue"}
+                    </button>
+                </form>
+                <div className="tprm-access-link">
+                    <button className="tprm-linkbtn" onClick={() => { setErr(null); setStep("forgot"); }}>
+                        Use a different address, or send another code
+                    </button>
+                </div>
+            </Centered>
+        );
+    }
+
+    /* --------------------------------------------- 3. the new password */
+    if (step === "forgotPass") {
+        const match = newPass.length > 0 && newPass === confirmPass;
+        const eye = (shown, toggle) => (
+            <button
+                type="button"
+                className="tprm-passtoggle"
+                onClick={toggle}
+                aria-label={shown ? "Hide password" : "Show password"}
+                aria-pressed={shown}
+                tabIndex={-1}
+            >
+                {shown ? <FaEyeSlash /> : <FaEye />}
+            </button>
+        );
+        return (
+            <Centered title="Choose a new password" sub={pwHelp}>
+                <form onSubmit={saveNewPassword}>
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-newpass">New password</label>
+                        <div className="tprm-passwrap">
+                            <input
+                                id="tprm-newpass"
+                                className="tprm-input"
+                                type={showNew ? "text" : "password"}
+                                autoComplete="new-password"
+                                autoFocus
+                                value={newPass}
+                                placeholder="Your new password"
+                                onChange={e => { setNewPass(e.target.value); setErr(null); }}
+                            />
+                            {eye(showNew, () => setShowNew(v => !v))}
+                        </div>
+                    </div>
+
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-confirmpass">Confirm new password</label>
+                        <div className="tprm-passwrap">
+                            <input
+                                id="tprm-confirmpass"
+                                className="tprm-input"
+                                type={showConfirm ? "text" : "password"}
+                                autoComplete="new-password"
+                                value={confirmPass}
+                                placeholder="Type it again"
+                                onChange={e => { setConfirmPass(e.target.value); setErr(null); }}
+                            />
+                            {eye(showConfirm, () => setShowConfirm(v => !v))}
+                        </div>
+                        {confirmPass.length > 0 && !match && (
+                            <div className="tprm-hint" style={{ color: "var(--tprm-red)" }}>
+                                The two passwords do not match
+                            </div>
+                        )}
+                    </div>
+
+                    {err && <div className="tprm-alert error">{err}</div>}
+                    <button type="submit" className="tprm-btn primary wide"
+                        disabled={!match || busy}>
+                        {busy ? "Saving..." : "Save password"}
+                    </button>
+                    <div className="tprm-note" style={{ marginTop: 18 }}>
+                        This is your Dolluz Corp password, so it changes for every app, not just
+                        dAssure. Any live "remember for 14 days" window ends here too, so the next
+                        sign-in asks for a code again.
+                    </div>
+                </form>
             </Centered>
         );
     }

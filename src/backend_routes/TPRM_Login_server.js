@@ -30,7 +30,8 @@ const mailer = require('./utils/tprm_mailer');
 const {
     OTP_TTL_SECONDS, RESEND_COOLDOWN_SECONDS, MAX_ATTEMPTS, MAX_SENDS,
     sha256, newOtp, codeMatches, maskEmail, signMfaToken, readMfaToken,
-    readMfaClaims, trustedUntil, rememberAccount, TRUST_DAYS,
+    readMfaClaims, trustedUntil, rememberAccount, forgetAccount, TRUST_DAYS,
+    signStepToken, readStepToken,
 } = require('./utils/tprm_mfa');
 
 const router = express.Router();
@@ -98,13 +99,19 @@ async function employeeById(empId) {
     return rows[0] || null;
 }
 
-/** The one code that can still be redeemed, if there is one. */
-async function liveOtpFor(empId) {
+/** The one code of THIS KIND that can still be redeemed, if there is one.
+ *
+ *  Scoped by purpose. Sign-in and password reset both mail six digit codes to
+ *  the same person through the same table, and a code issued for one must
+ *  never open the other - so the purpose is part of the lookup, not something
+ *  the caller is trusted to remember. */
+async function liveOtpFor(empId, purpose = 'login') {
     const [rows] = await tprm.query(
         `SELECT otp_id, code_hash, expires_at, attempts, send_no, created_time
            FROM tprm_login_otp
-          WHERE emp_id = ? AND consumed_at IS NULL AND superseded_at IS NULL
-          ORDER BY otp_id DESC LIMIT 1`, [empId]);
+          WHERE emp_id = ? AND purpose = ?
+            AND consumed_at IS NULL AND superseded_at IS NULL
+          ORDER BY otp_id DESC LIMIT 1`, [empId, purpose]);
     return rows[0] || null;
 }
 
@@ -118,20 +125,23 @@ const secondsSince = (t) => Math.max(0, Math.floor((Date.now() - new Date(t)) / 
  * resend does not leave two working codes in the wild - the newest is the only
  * one that opens the door.
  */
-async function sendOtp(req, employee, sendNo = 1) {
+async function sendOtp(req, employee, sendNo = 1, purpose = 'login') {
     const code = newOtp();
 
+    // Only codes of the same purpose are superseded: asking to reset a
+    // password should not quietly kill a sign-in code already in flight.
     await tprm.query(
         `UPDATE tprm_login_otp SET superseded_at = NOW(3)
-          WHERE emp_id = ? AND consumed_at IS NULL AND superseded_at IS NULL`,
-        [employee.emp_id]);
+          WHERE emp_id = ? AND purpose = ?
+            AND consumed_at IS NULL AND superseded_at IS NULL`,
+        [employee.emp_id, purpose]);
 
     const [ins] = await tprm.query(
         `INSERT INTO tprm_login_otp
-           (emp_id, code_hash, expires_at, send_no, ip_addr, user_agent)
-         VALUES (?, ?, DATE_ADD(NOW(3), INTERVAL ? SECOND), ?, ?, ?)`,
+           (emp_id, purpose, code_hash, expires_at, send_no, ip_addr, user_agent)
+         VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? SECOND), ?, ?, ?)`,
         [
-            employee.emp_id, sha256(code), OTP_TTL_SECONDS, sendNo,
+            employee.emp_id, purpose, sha256(code), OTP_TTL_SECONDS, sendNo,
             (req.ip || '').replace('::ffff:', '').slice(0, 45),
             (req.headers['user-agent'] || '').slice(0, 300),
         ]);
@@ -139,14 +149,17 @@ async function sendOtp(req, employee, sendNo = 1) {
     // The code goes by mail and is never returned to the caller. With
     // driver=outbox the row is written to tprm_mail_outbox and printed in the
     // terminal, code and all, which is how it is read in development.
-    const t = mailer.templates.renderLoginOtpEmail(
-        { code, minutes: Math.round(OTP_TTL_SECONDS / 60) });
+    const t = purpose === 'reset'
+        ? mailer.templates.renderPasswordResetOtpEmail(
+            { code, minutes: Math.round(OTP_TTL_SECONDS / 60) })
+        : mailer.templates.renderLoginOtpEmail(
+            { code, minutes: Math.round(OTP_TTL_SECONDS / 60) });
     const mailId = await mailer.queue({
         to: employee.emp_mail_id,
         subject: t.subject,
         body: t.text,
         html: t.html,
-        kind: 'login_otp',
+        kind: purpose === 'reset' ? 'password_reset_otp' : 'login_otp',
         empId: employee.emp_id,
         expires: new Date(Date.now() + OTP_TTL_SECONDS * 1000).toTimeString().slice(0, 8),
     });
@@ -322,7 +335,8 @@ router.post("/mfa/resend", async (req, res) => {
         const live = await liveOtpFor(empId);
         const [[last]] = await tprm.query(
             `SELECT send_no, created_time FROM tprm_login_otp
-              WHERE emp_id = ? ORDER BY otp_id DESC LIMIT 1`, [empId]);
+              WHERE emp_id = ? AND purpose = 'login'
+              ORDER BY otp_id DESC LIMIT 1`, [empId]);
 
         if (last) {
             const wait = RESEND_COOLDOWN_SECONDS - secondsSince(last.created_time);
@@ -422,6 +436,183 @@ router.post("/mfa/verify", async (req, res) => {
 });
 
 
+
+/* ----------------------------------------------------- password reset */
+/*
+ * Three steps, because the browser has to cross two gaps: address to code,
+ * and code to new password. Each gap is carried by its own typed token, so
+ * neither can be skipped - proving you typed an address is not proof you
+ * redeemed a code, and only a redeemed code mints the token the last step
+ * accepts.
+ *
+ * IMPORTANT, and it is not obvious from in here: the password being changed
+ * lives in dadmin.employee, which every Dolluz Corp app authenticates
+ * against. A reset done on this screen changes the password for dAdmin,
+ * dAssist, dTime and the rest, not just for dAssure. That is the correct
+ * behaviour for one shared credential, but it does mean the dAssure database
+ * user needs UPDATE on dadmin.employee - SELECT alone is not enough, and the
+ * grant in README.md gives only SELECT.
+ */
+
+/** Twelve characters with all four kinds. Matches the rule the reference
+ *  prototype states on this screen, and it is stricter than nothing, which
+ *  is what was being enforced before. */
+const PASSWORD_RULE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+const PASSWORD_HELP = "At least 12 characters, with an upper case letter, a lower case letter, "
+    + "a number and a symbol.";
+
+/* Step one. Always answers the same way.
+ *
+ * The response shape does not vary on whether the account exists, is inactive
+ * or holds no engagement, and the masked address is derived from what was
+ * TYPED rather than from what is stored - otherwise the difference between a
+ * real and an invented address would be readable straight off the screen, and
+ * this form would become a way to enumerate staff. Mail is sent only when
+ * there is somebody to send it to. */
+router.post("/forgot/start", async (req, res) => {
+    try {
+        const username = String((req.body && req.body.username) || '').trim();
+        if (!username || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(username)) {
+            return res.status(400).json({ message: "Enter your work email address" });
+        }
+
+        const [rows] = await dadmin.query(
+            `SELECT emp_id, CONCAT_WS(' ', emp_first_name, emp_last_name) AS emp_name,
+                    emp_mail_id, active
+               FROM employee WHERE emp_mail_id = ? AND deleted_time IS NULL`,
+            [username]);
+        const employee = rows[0];
+
+        if (employee && employee.active) {
+            req.emp_id = employee.emp_id;
+            req.tprmUser = employee;
+            await sendOtp(req, employee, 1, 'reset');
+            await audit(req, {
+                action: 'auth.reset_requested', entity: 'employee', entityId: employee.emp_id,
+            });
+        }
+
+        // Identical either way, including the token: an unknown address gets a
+        // perfectly well formed one that simply has no live code behind it.
+        return res.json({
+            next: "code",
+            resetToken: signStepToken(employee ? employee.emp_id : `unknown:${username}`, 'reset', 15),
+            maskedEmail: maskEmail(username),
+            expiresIn: OTP_TTL_SECONDS,
+            resendIn: RESEND_COOLDOWN_SECONDS,
+        });
+    } catch (e) {
+        logError("forgot/start error", e, req);
+        return res.status(500).json({ message: "Database error" });
+    }
+});
+
+/* Step two. Redeem the code, and mint the token that opens the last step. */
+router.post("/forgot/verify", async (req, res) => {
+    try {
+        const { resetToken, code } = req.body || {};
+        const empId = readStepToken(resetToken, 'reset');
+        if (!empId) return res.status(401).json({ message: "RESET_TOKEN_INVALID" });
+
+        // An address nobody has fails here rather than at step one, so the
+        // two cases are indistinguishable until a code is actually guessed.
+        const live = String(empId).startsWith('unknown:') ? null : await liveOtpFor(empId, 'reset');
+        if (!live) return res.status(400).json({ message: "OTP_NOT_SENT" });
+
+        if (secondsUntil(live.expires_at) <= 0) {
+            await tprm.query(`UPDATE tprm_login_otp SET superseded_at = NOW(3) WHERE otp_id = ?`,
+                [live.otp_id]);
+            return res.status(410).json({ message: "OTP_EXPIRED" });
+        }
+
+        if (!codeMatches(code, live.code_hash)) {
+            const n = Number(live.attempts) + 1;
+            if (n >= MAX_ATTEMPTS) {
+                await tprm.query(
+                    `UPDATE tprm_login_otp SET attempts = ?, superseded_at = NOW(3) WHERE otp_id = ?`,
+                    [n, live.otp_id]);
+                req.emp_id = empId;
+                await audit(req, { action: 'auth.reset_otp_burned', entity: 'employee', entityId: empId });
+                return res.status(410).json({ message: "OTP_BURNED" });
+            }
+            await tprm.query(`UPDATE tprm_login_otp SET attempts = ? WHERE otp_id = ?`,
+                [n, live.otp_id]);
+            return res.status(401).json({
+                message: "MFA_INVALID",
+                attemptsLeft: MAX_ATTEMPTS - n,
+                expiresIn: secondsUntil(live.expires_at),
+            });
+        }
+
+        // Consumed here, not at the password step: a code redeemed twice on
+        // two connections must find nothing left the second time.
+        const [used] = await tprm.query(
+            `UPDATE tprm_login_otp SET consumed_at = NOW(3)
+              WHERE otp_id = ? AND consumed_at IS NULL`, [live.otp_id]);
+        if (!used.affectedRows) return res.status(410).json({ message: "OTP_BURNED" });
+
+        return res.json({
+            next: "password",
+            setToken: signStepToken(empId, 'pwd', 10),
+            passwordHelp: PASSWORD_HELP,
+        });
+    } catch (e) {
+        logError("forgot/verify error", e, req);
+        return res.status(500).json({ message: "Database error" });
+    }
+});
+
+/* Step three. Set it. */
+router.post("/forgot/reset", async (req, res) => {
+    try {
+        const { setToken, password, confirm } = req.body || {};
+        const empId = readStepToken(setToken, 'pwd');
+        if (!empId) return res.status(401).json({ message: "SET_TOKEN_INVALID" });
+
+        if (typeof confirm === 'string' && password !== confirm) {
+            return res.status(400).json({ message: "PASSWORD_MISMATCH" });
+        }
+        if (!PASSWORD_RULE.test(String(password || ''))) {
+            return res.status(400).json({ message: "PASSWORD_WEAK", detail: PASSWORD_HELP });
+        }
+
+        const employee = await employeeById(empId);
+        if (!employee || !employee.active) return res.status(403).json({ message: "ACCOUNT_INACTIVE" });
+
+        const hash = bcrypt.hashSync(String(password), 10);
+        const [r] = await dadmin.query(
+            `UPDATE employee SET account_pass = ? WHERE emp_id = ? AND deleted_time IS NULL`,
+            [hash, empId]);
+        if (!r.affectedRows) return res.status(500).json({ message: "Database error" });
+
+        /* A reset ends the remember window. Somebody resetting a password is
+           usually somebody who thinks it was known - and leaving a live
+           fourteen day second factor bypass open across that would hand the
+           account to whoever opened the window. */
+        await forgetAccount(tprm, empId);
+
+        // And this browser starts over rather than carrying a session minted
+        // against the old password.
+        res.clearCookie("dTprm_token", cookieOptions());
+        res.cookie("dTprm_signedout", "1", cookieOptions());
+
+        req.emp_id = empId;
+        req.tprmUser = employee;
+        await audit(req, {
+            action: 'auth.password_reset', entity: 'employee', entityId: empId,
+            after: { rememberWindowRevoked: true },
+        });
+
+        return res.json({
+            success: true,
+            message: "Password changed. Sign in with your new password.",
+        });
+    } catch (e) {
+        logError("forgot/reset error", e, req);
+        return res.status(500).json({ message: "Database error" });
+    }
+});
+
 /* ---------------------------------------------------------------- logout */
 router.post("/logout", (req, res) => {
     res.clearCookie("dTprm_token", cookieOptions());
@@ -451,7 +642,8 @@ router.get("/me", verifyJWT, async (req, res) => {
         let tenants = [];
         if (ids.length) {
             const [t] = await tprm.query(
-                `SELECT t.tenant_id, t.tenant_code, t.tenant_name, t.default_sector, t.status
+                `SELECT t.tenant_id, t.tenant_code, t.tenant_name, t.default_sector, t.status,
+                        t.contact_name, t.contact_email
                    FROM tenant t
                   WHERE t.tenant_id IN (${ids.map(() => '?').join(',')}) AND t.deleted_time IS NULL
                   ORDER BY t.tenant_name`,

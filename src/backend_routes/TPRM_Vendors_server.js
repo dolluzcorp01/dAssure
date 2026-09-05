@@ -56,12 +56,21 @@ router.post("/:tenantId/intake-template/email", requirePerm('vendor.manage'), as
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
 
-        const { to, businessUnit } = req.body;
+        const [[t]] = await db.query(
+            `SELECT tenant_name, contact_email FROM tenant WHERE tenant_id=?`, [req.tenantId]);
+
+        /* Falls back to the contact recorded at onboarding, so the address is
+           held once rather than retyped at every stage. An explicit recipient
+           still wins - one-off sends to a different person are ordinary. */
+        const { businessUnit } = req.body;
+        const to = String(req.body.to || t.contact_email || '').trim();
         if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
-            return res.status(400).json({ error: "A valid recipient email is required" });
+            return res.status(400).json({
+                error: "NO_RECIPIENT",
+                message: "No recipient. Give an address, or record a client contact on the client.",
+            });
         }
 
-        const [[t]] = await db.query(`SELECT tenant_name FROM tenant WHERE tenant_id=?`, [req.tenantId]);
         const buf = await excel.intakeTemplate({ tenantName: t.tenant_name, businessUnit });
         const key = storage.keyFor(`tenant/${req.tenantId}/intake`, 'Supplier_Intake_Template.xlsx');
         storage.put(key, Buffer.from(buf));

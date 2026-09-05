@@ -291,9 +291,16 @@ router.post("/:tenantId/tiering-pack/email", requirePerm('assessment.perform'), 
         req.tenantId = Number(req.params.tenantId);
         if (!requireTenant(req, res)) return;
 
-        const { to } = req.body;
+        const [[ct]] = await db.query(
+            `SELECT contact_email FROM tenant WHERE tenant_id=?`, [req.tenantId]);
+        // Same fallback as the intake template: the contact recorded at
+        // onboarding, unless this send names someone else.
+        const to = String(req.body.to || (ct && ct.contact_email) || '').trim();
         if (!to || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to)) {
-            return res.status(400).json({ error: "A valid recipient email is required" });
+            return res.status(400).json({
+                error: "NO_RECIPIENT",
+                message: "No recipient. Give an address, or record a client contact on the client.",
+            });
         }
 
         const { tenantName, vendors, buf } = await buildTieringPack(req.tenantId);

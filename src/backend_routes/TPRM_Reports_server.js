@@ -233,8 +233,19 @@ router.post("/assessments/:id/issue", requirePerm('report.issue'), async (req, r
         if (!['approved', 'issued'].includes(a.state)) {
             return res.status(409).json({ error: "NOT_APPROVED", message: "Only an approved assessment can be issued" });
         }
-        const recipients = String(req.body.recipients || '').trim();
-        if (!recipients) return res.status(400).json({ error: "Name at least one recipient" });
+        // The client contact stands in when nobody is named, so an issued
+        // report cannot be blocked on remembering an address that onboarding
+        // already captured.
+        const [[ct]] = await db.query(
+            `SELECT contact_email FROM tenant WHERE tenant_id=?`, [a.tenant_id]);
+        const recipients = String(
+            req.body.recipients || (ct && ct.contact_email) || '').trim();
+        if (!recipients) {
+            return res.status(400).json({
+                error: "NO_RECIPIENT",
+                message: "Name at least one recipient, or record a client contact on the client.",
+            });
+        }
 
         const { buffer, reference } = await buildReportPdf(a);
         const sha = crypto.createHash('sha256').update(buffer).digest('hex');

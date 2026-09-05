@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
-import { apiJson, apiPost, apiDelete } from "./utils/api";
+import { apiJson, apiPost, apiPut, apiDelete } from "./utils/api";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
 import "./TPRM_UsersAndRoles.css";
@@ -7,7 +7,7 @@ import TPRMSelect from "./TPRM_Select";
 import { ROLE_INFO } from "./utils/tprmRoles";
 
 function TPRMUsersAndRoles() {
-    const { tenantId, tenant, user } = useAccess();
+    const { tenantId, tenant, user, hasPerm } = useAccess();
     const [members, setMembers] = useState(null);
     const [roles, setRoles] = useState([]);
     const [grantable, setGrantable] = useState([]);
@@ -16,6 +16,8 @@ function TPRMUsersAndRoles() {
     // The full capability grid, read from the same tables the API checks.
     const [matrix, setMatrix] = useState(null);
     const [showMatrix, setShowMatrix] = useState(false);
+    // Which cell is mid-flight, so two clicks cannot race each other.
+    const [cellBusy, setCellBusy] = useState(null);
 
     const load = useCallback(() => {
         if (!tenantId) return;
@@ -25,6 +27,36 @@ function TPRMUsersAndRoles() {
 
     useEffect(() => { load(); }, [load]);
     useEffect(() => { apiJson("/api/tprm/clients/roles").then(setRoles).catch(() => {}); }, []);
+
+    /* Editing the matrix changes what a role means everywhere, for everyone,
+       on every client - so it is Practice Head only, and the server checks
+       permission.edit again whatever this decides to render. */
+    const canEditMatrix = hasPerm("permission.edit");
+
+    const toggleCell = async (roleCode, permKey, has) => {
+        if (!canEditMatrix || roleCode === "PH") return;
+        const cell = roleCode + ":" + permKey;
+        setCellBusy(cell);
+        try {
+            const r = await apiPut("/api/tprm/clients/permission-matrix",
+                { roleCode, permKey, granted: !has });
+            // Patched in place rather than refetching the whole grid, so the
+            // tick moves under the pointer that asked for it.
+            setMatrix(m => ({
+                ...m,
+                permissions: m.permissions.map(p => p.perm_key !== permKey ? p : {
+                    ...p,
+                    roles: has ? p.roles.filter(c => c !== roleCode)
+                        : [...p.roles, roleCode],
+                }),
+            }));
+            if (r && r.message) tprmAlert.success("Saved", r.message);
+        } catch (e) {
+            tprmAlert.apiError(e);
+        } finally {
+            setCellBusy(null);
+        }
+    };
 
     // Fetched once, when it is first asked for. Nobody opens this page to read
     // the matrix, so it does not need to be on the wire before they do.
@@ -179,6 +211,11 @@ function TPRMUsersAndRoles() {
                                     Read live from the permission tables. This is the same matrix
                                     the API checks on every request, so it cannot drift from
                                     what the system will actually allow.
+                                    {canEditMatrix
+                                        ? " Click a cell to grant or remove it. Practice Head is"
+                                          + " fixed, because it is the role that edits this matrix."
+                                        : " Read only. Editing it needs permission.edit, which the"
+                                          + " Practice Head holds."}
                                 </div>
                             </div>
                             <button
@@ -213,11 +250,17 @@ function TPRMUsersAndRoles() {
                                                     </td>
                                                     {matrix.roles.map(r => {
                                                         const has = p.roles.includes(r.role_code);
+                                                        const locked = r.role_code === "PH";
+                                                        const editable = canEditMatrix && !locked;
+                                                        const cell = r.role_code + ":" + p.perm_key;
+                                                        const act = has ? "remove" : "grant";
                                                         return (
                                                             <td
                                                                 key={r.role_code}
                                                                 className={"tprm-matrix-cell"
-                                                                    + (has ? " yes" : "")}
+                                                                    + (has ? " yes" : "")
+                                                                    + (editable ? " editable" : "")
+                                                                    + (cellBusy === cell ? " busy" : "")}
                                                                 /* Drawn in the role's own colour,
                                                                    the same one the rail and the
                                                                    user list use for it. */
@@ -225,8 +268,29 @@ function TPRMUsersAndRoles() {
                                                                     color: (ROLE_INFO[r.role_code]
                                                                         || {}).color,
                                                                 } : undefined}
-                                                                title={`${r.role_name}: `
-                                                                    + (has ? "allowed" : "not allowed")}
+                                                                title={editable
+                                                                    ? `${r.role_name}: `
+                                                                      + (has ? "allowed" : "not allowed")
+                                                                      + `, click to ${act}`
+                                                                    : locked && canEditMatrix
+                                                                        ? "Practice Head holds every"
+                                                                          + " capability and cannot be"
+                                                                          + " edited here"
+                                                                        : `${r.role_name}: `
+                                                                          + (has ? "allowed" : "not allowed")}
+                                                                onClick={editable
+                                                                    ? () => toggleCell(r.role_code,
+                                                                        p.perm_key, has)
+                                                                    : undefined}
+                                                                role={editable ? "button" : undefined}
+                                                                tabIndex={editable ? 0 : undefined}
+                                                                onKeyDown={editable ? e => {
+                                                                    if (e.key === "Enter" || e.key === " ") {
+                                                                        e.preventDefault();
+                                                                        toggleCell(r.role_code,
+                                                                            p.perm_key, has);
+                                                                    }
+                                                                } : undefined}
                                                             >
                                                                 {has ? "✓" : "·"}
                                                             </td>

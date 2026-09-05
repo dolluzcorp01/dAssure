@@ -126,3 +126,13 @@
     color: var(--tprm-faint);
     white-space: nowrap;
 }
+
+/* An editable cell says so before it is clicked, and goes quiet while the
+   server is deciding. Practice Head never gets these - it is locked. */
+.tprm-matrix-cell.editable { cursor: pointer; }
+.tprm-matrix-cell.editable:hover { background: #F1F4F7; }
+.tprm-matrix-cell.editable:focus-visible {
+    outline: 2px solid var(--tprm-gold);
+    outline-offset: -2px;
+}
+.tprm-matrix-cell.busy { opacity: .45; pointer-events: none; }

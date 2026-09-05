@@ -90,6 +90,34 @@ function readMfaClaims(t) {
     }
 }
 
+/* ------------------------------------------- password reset step tokens */
+
+/**
+ * The reset flow has two gaps a browser has to carry state across: from the
+ * address to the code, and from the code to the new password. Each gap gets
+ * its own token TYPE, signed with the same secret.
+ *
+ * The types are what stop the tokens being swapped. A 'reset' token proves
+ * only that an address was submitted - it must never be enough to set a
+ * password. A 'pwd' token is minted only on the far side of a redeemed code,
+ * and only it opens the final step. readStepToken refuses anything whose typ
+ * does not match, so a session token or an MFA token presented here is not a
+ * key to anything.
+ */
+const signStepToken = (empId, typ, minutes) =>
+    jwt.sign({ emp_id: empId, typ }, JWT_SECRET, { expiresIn: `${minutes}m` });
+
+function readStepToken(t, typ) {
+    if (!t) return null;
+    try {
+        const p = jwt.verify(t, JWT_SECRET);
+        if (!p || p.typ !== typ) return null;
+        return p.emp_id;
+    } catch {
+        return null;
+    }
+}
+
 /* --------------------------------------------------- remembered accounts */
 
 /** How long a remembered account skips the code for. */
@@ -134,4 +162,5 @@ module.exports = {
     sha256, newOtp, codeMatches, maskEmail,
     readMfaClaims, trustedUntil, rememberAccount, forgetAccount,
     signMfaToken, readMfaToken,
+    signStepToken, readStepToken,
 };

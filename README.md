@@ -47,7 +47,7 @@ Copy `.env.example` to `.env` and fill it in.
 node db/migrate.js
 ```
 
-Creates the `dtprm` database and applies all five migrations in order. Safe to
+Creates the `dtprm` database and applies every migration in order. Safe to
 re-run — every statement is `IF NOT EXISTS`, `INSERT IGNORE` or
 `ON DUPLICATE KEY UPDATE`.
 
@@ -65,8 +65,17 @@ CREATE USER 'dtprm'@'localhost' IDENTIFIED BY '<password>';
 GRANT SELECT, INSERT, UPDATE, DELETE ON tprm.* TO 'dtprm'@'localhost';
 REVOKE UPDATE, DELETE ON tprm.tprm_audit_event FROM 'dtprm'@'localhost';
 GRANT SELECT ON dadmin.employee TO 'dtprm'@'localhost';
+
+-- Forgot password writes the new hash back to the shared credential, so this
+-- one column needs UPDATE as well. Nothing else in dadmin is writable.
+GRANT UPDATE (account_pass) ON dadmin.employee TO 'dtprm'@'localhost';
 FLUSH PRIVILEGES;
 ```
+
+A password reset done in dAssure changes the **Dolluz Corp** password, because
+`dadmin.employee.account_pass` is the one credential every dApp authenticates
+against. That is deliberate - there is one password, not eleven - but it is
+worth knowing before you reset somebody's.
 
 ---
 
@@ -239,7 +248,7 @@ check. Add to cron:
 config/db.js                          pooled MySQL, same factory as dAdmin
 server.js                             CORS allowlist, route mounting, mail worker
 db/migrate.js                         migration runner
-db/migrations/00{1..5}_*.sql          schema and seed
+db/migrations/*.sql                   schema, seed and later changes
 
 src/backend_routes/
   TPRM_Login_server.js                exports { router, verifyJWT }

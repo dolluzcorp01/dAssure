@@ -196,10 +196,47 @@ function renderReportIssueEmail(vars = {}) {
     };
 }
 
+
+/* ------------------------------------------------------ password reset code */
+
+/**
+ * vars: { code, minutes }
+ *
+ * Deliberately blunter than the sign-in code. Somebody receiving this without
+ * having asked for it is the one case where the recipient, not the system, is
+ * the only thing that can stop an account being taken - so the warning says
+ * plainly what to do rather than being polite about it.
+ */
+function renderPasswordResetOtpEmail(vars = {}) {
+    const code = String(vars.code || "");
+    const minutes = Number(vars.minutes || 2);
+
+    return {
+        subject: `[dAssure] Your password reset code: ${code}`,
+        html: buildOtpShell({
+            preheader: `Your dAssure password reset code is ${code}. It expires in ${minutes} minutes.`,
+            eyebrow: "Third Party Risk Management",
+            title: "Reset your password",
+            intro: `Enter this code on the dAssure reset screen to choose a new password. It expires`
+                + ` in <strong>${minutes} minutes</strong> and can be used once.`,
+            code,
+            warning: `If you did not ask to reset your password, do not enter this code. Somebody`
+                + ` else may know your address. Tell ${contactLink} straight away.`,
+        }),
+        text: `Your password reset code is ${code}\n\n`
+            + `It expires in ${minutes} minutes and can be used once.\n\n`
+            + `Enter it on the dAssure reset screen to choose a new password.\n\n`
+            + `If you did not ask to reset your password, do not enter this code. `
+            + `Somebody else may know your address. Tell ${CONTACT} straight away.\n\n`
+            + `Regards\nThird Party Risk Management\nDolluz Corp`,
+    };
+}
+
 module.exports = {
     renderLoginOtpEmail,
     renderIntakeTemplateEmail,
     renderTieringPackEmail,
     renderVendorQuestionnaireEmail,
     renderReportIssueEmail,
+    renderPasswordResetOtpEmail,
 };
