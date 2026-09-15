@@ -120,7 +120,9 @@ function readStepToken(t, typ) {
 
 /* --------------------------------------------------- remembered accounts */
 
-/** How long a remembered account skips the code for. */
+/** How long a remembered account skips the code for, when dAdmin's config
+ *  cannot be read. The live figure is dadmin.login_app_config.trust_days,
+ *  read by signinConfig() in TPRM_Login_server.js. */
 const TRUST_DAYS = 14;
 
 /** Is this account inside a live remember window?
@@ -138,7 +140,7 @@ async function trustedUntil(db, empId) {
 
 /** Starts or extends the window. Called only after a code has been redeemed,
  *  so the window can never open without a second factor having been passed. */
-async function rememberAccount(db, empId, ip, agent) {
+async function rememberAccount(db, empId, ip, agent, days = TRUST_DAYS) {
     await db.query(
         `INSERT INTO tprm_mfa_trust (emp_id, trusted_until, granted_ip, granted_agent)
          VALUES (?, DATE_ADD(NOW(3), INTERVAL ? DAY), ?, ?)
@@ -146,7 +148,7 @@ async function rememberAccount(db, empId, ip, agent) {
            trusted_until = VALUES(trusted_until), granted_time = NOW(3),
            granted_ip = VALUES(granted_ip), granted_agent = VALUES(granted_agent),
            revoked_time = NULL`,
-        [empId, TRUST_DAYS, ip || null, (agent || '').slice(0, 255) || null]);
+        [empId, days, ip || null, (agent || '').slice(0, 255) || null]);
 }
 
 /** Ends it everywhere at once - the only way back to a code prompt before the

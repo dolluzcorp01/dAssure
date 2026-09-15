@@ -235,7 +235,6 @@ export const SPECS = {
 
 export const API_MAP = {
   login: [
-    ['GET', '/api/public/banners', 'Banner carousel, no token needed'],
     ['POST', '/api/auth/login', 'Returns mfaToken and next: mfa or mfa_enrol'],
     ['POST', '/api/auth/forgot', 'Always the same response, no account discovery']
   ],
@@ -254,12 +253,6 @@ export const API_MAP = {
     ['POST', '/api/account/password', 'Requires the current password'],
     ['POST', '/api/account/mfa/reset', 'Re-enrolment, requires the current password'],
     ['DELETE', '/api/account/sessions/:id', 'Sign out one device']
-  ],
-  banners: [
-    ['GET', '/api/banners', 'All banners including inactive'],
-    ['POST', '/api/banners', 'Requires banner.manage'],
-    ['PUT', '/api/banners/:id', 'Blocks deactivating the last active banner'],
-    ['DELETE', '/api/banners/:id', 'Same guard applies']
   ],
   clients: [['GET', '/api/tenants', 'Only clients you hold a role on'],
             ['POST', '/api/tenants', 'Requires client.create']],

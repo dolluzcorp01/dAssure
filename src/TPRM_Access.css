@@ -148,12 +148,27 @@
 .tprm-login-dots button.on { width: 38px; background: var(--tprm-gold); }
 .tprm-login-dots button:focus-visible { outline: 2px solid var(--tprm-gold-2); outline-offset: 3px; }
 
-/* Says whether the carousel is running, so a paused one does not read as
-   broken to somebody who has stopped it by resting the pointer there. */
-.tprm-login-rotstate {
-    margin-left: 14px;
-    font-size: 11.5px;
-    color: rgba(255, 255, 255, .38);
+/* A banner can be a full-panel image instead of gradient and copy - set in
+   dAdmin, Inside D -> Login Page Config. Nothing is painted over it: no tag,
+   headline, figures, rings, watermark or lockup. Navy underneath while the
+   picture loads. */
+.tprm-login-panel--img {
+    background-color: #0E1A2B;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    padding: 0;
+}
+
+/* The dots stay, so the carousel can still be driven - and they have to stay
+   readable over an arbitrary photograph, so they carry their own scrim rather
+   than relying on the panel being dark. */
+.tprm-login-panel--img .tprm-login-dots {
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(13, 27, 42, .45);
+    backdrop-filter: blur(3px);
+    width: fit-content;
 }
 
 /* -------------------------------------------------------- form pane */

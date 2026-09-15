@@ -3,6 +3,16 @@ export const API_BASE =
         ? process.env.REACT_APP_API
         : "http://localhost:4009";
 
+// dAdmin owns the global sign-in config (banners, figures, two-step). Read-only
+// and unauthenticated, read cross-origin from every dApp's sign-in screen.
+// Reached with a plain fetch - never apiFetch, which targets this app's own
+// backend, sends its cookie and attaches a client's tenant id, none of which
+// belongs on a request to another origin.
+export const DADMIN_API_BASE =
+    process.env.NODE_ENV === "production"
+        ? process.env.REACT_APP_DADMIN_API
+        : "http://localhost:4002";
+
 // Every request carries the cookie and, where a client is selected, the
 // x-tenant-id header. The server never trusts that header on its own - it
 // re-checks membership on every call - but sending it means a route handler
@@ -11,11 +21,29 @@ export async function apiFetch(endpoint, options = {}) {
     const tenantId = localStorage.getItem("dTprm_tenant");
     const headers = { ...(options.headers || {}) };
     if (tenantId && !headers["x-tenant-id"]) headers["x-tenant-id"] = tenantId;
-    return fetch(`${API_BASE}${endpoint}`, {
+    const res = await fetch(`${API_BASE}${endpoint}`, {
         credentials: "include",
         ...options,
         headers,
     });
+    if (res.status === 401) noticeRevocation(res);
+    return res;
+}
+
+/* An administrator ending this session in dAdmin arrives as a 401 on whatever
+   call happened next, not only on /me. Announce it, so AccessContext drops the
+   session and ProtectedRoute bounces to /login carrying the reason - the same
+   path every other refusal takes. Read from a clone, so the caller still gets
+   its own body. */
+function noticeRevocation(res) {
+    res.clone().json()
+        .then((body) => {
+            if (body && body.error === "SESSION_REVOKED") {
+                window.dispatchEvent(new CustomEvent("tprm:session-revoked",
+                    { detail: body.message }));
+            }
+        })
+        .catch(() => { /* not JSON - not ours to interpret */ });
 }
 
 export async function apiJson(endpoint, options = {}) {

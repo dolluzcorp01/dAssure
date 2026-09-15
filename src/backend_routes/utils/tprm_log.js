@@ -61,14 +61,26 @@ function logMail(stage, info) {
     console.log('');
     console.log(`📧 ${bold('mail')} ${tag} ${id} ${kind ? dim('[') + cyan(kind) + dim(']') : ''} ${dim(time())}`);
     console.log(field('from', fromName ? `${fromName} <${from}>` : String(from)));
+    // A one-time code is a live credential for as long as it lasts: anyone who
+    // can read this log in production could sign in as that person inside the
+    // code's lifetime, which is what the second factor exists to prevent. So in
+    // production the digits never print. The SUBJECT is masked as well - the
+    // sign-in subject leads with the code, so guarding only the code line would
+    // still print it one line above.
+    const otp = findOtp(info);
+    const hideCode = process.env.NODE_ENV === 'production';
+    const shownSubject = otp && hideCode
+        ? String(subject || '').split(otp).join('\u2022'.repeat(otp.length))
+        : subject;
+
     console.log(field('to', list(to)));
     if (cc) console.log(field('cc', list(cc)));
-    console.log(field('subject', subject || dim('-')));
+    console.log(field('subject', shownSubject || dim('-')));
     if (attachment) console.log(field('attach', attachment));
 
-    const otp = findOtp(info);
     if (otp) {
-        console.log('   ' + dim('code'.padEnd(8)) + bold(yellow('  ' + otp + '  '))
+        console.log('   ' + dim('code'.padEnd(8))
+            + (hideCode ? dim('  (not printed in production)') : bold(yellow('  ' + otp + '  ')))
             + (expires ? dim('  expires ' + expires) : ''));
     }
 

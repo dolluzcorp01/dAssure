@@ -7,8 +7,8 @@
 // Three places a page can live, and `where` says which:
 //
 //   "loose"   a sidebar row below the TPRM group, under no heading. These are
-//             system wide rather than per client - the standards catalogue, who
-//             holds which role, the login banners.
+//             system wide rather than per client - the standards catalogue and
+//             who holds which role.
 //   "tprm"    a sidebar row inside the TPRM group: the third party risk work
 //             itself.
 //   "client"  NOT a sidebar row. Reached from the client tab bar, because these
@@ -48,7 +48,6 @@ import "./left_navbar.css";
 export const NAV_ITEMS = [
     { label: "Standards", to: "/Standards", where: "loose", perm: "case.comment" },
     { label: "Users and Roles", to: "/Users_And_Roles", where: "loose", perm: "user.grant" },
-    { label: "Banners", to: "/Banners", where: "loose", perm: "banner.manage" },
 
     // One landing page, named for the work the role actually opens it to do.
     {

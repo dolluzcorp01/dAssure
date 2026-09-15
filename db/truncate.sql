@@ -5,10 +5,10 @@
 --  assessments, findings, reports, logs. Run it and dAssure is a working,
 --  empty installation.
 --
---  Section 2 clears what the app was TAUGHT: the instrument library and
---  the login banners. Both are restored by `node db/migrate.js`, but any
---  instrument you authored yourself is gone for good. It is commented out
---  for that reason - uncomment deliberately.
+--  Section 2 clears what the app was TAUGHT: the instrument library. It is
+--  restored by `node db/migrate.js`, but any instrument you authored
+--  yourself is gone for good. It is commented out for that reason -
+--  uncomment deliberately.
 --
 --  What is never truncated here is the reference catalogue: sectors,
 --  standards, control domains, tiering dimensions, classification rules,
@@ -63,6 +63,5 @@ TRUNCATE TABLE tprm_login_otp;
 -- TRUNCATE TABLE instrument_standard;
 -- TRUNCATE TABLE question;
 -- TRUNCATE TABLE instrument_version;
--- TRUNCATE TABLE banner;
 
 SET FOREIGN_KEY_CHECKS = 1;

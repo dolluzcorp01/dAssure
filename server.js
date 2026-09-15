@@ -58,7 +58,6 @@ const EvidenceRoutes = require('./src/backend_routes/TPRM_Evidence_server');
 const FindingsRoutes = require('./src/backend_routes/TPRM_Findings_server');
 const ReportsRoutes = require('./src/backend_routes/TPRM_Reports_server');
 const AuditRoutes = require('./src/backend_routes/TPRM_Audit_server');
-const BannersRoutes = require('./src/backend_routes/TPRM_Banners_server');
 const { startMailWorker } = require('./src/backend_routes/utils/tprm_mailer');
 const { logError } = require('./src/backend_routes/utils/tprm_log');
 
@@ -72,7 +71,6 @@ app.use("/api/tprm/evidence", EvidenceRoutes);
 app.use("/api/tprm/findings", FindingsRoutes);
 app.use("/api/tprm/reports", ReportsRoutes);
 app.use("/api/tprm/audit", AuditRoutes);
-app.use("/api/tprm/banners", BannersRoutes);
 
 // Health check - reports the database too, so a failure is diagnosable from
 // one call rather than from a 500 on some unrelated endpoint.

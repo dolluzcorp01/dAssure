@@ -4,50 +4,65 @@
 // and the order of every element come from that file.
 //
 // The screen is two panes: a rotating banner that says what the product is for,
-// and a form that asks for as little as possible. The banner is not decoration -
-// it carries the three numbers that describe the library a client buys into.
+// and a form that asks for as little as possible.
+//
+// The banner panel is configured in dAdmin - Inside D -> Login Page Config -
+// along with the rotation interval, the three figures and whether two-step
+// sign-in is on at all. This screen reads that config cross-origin and falls
+// back to its own copy of it whenever dAdmin cannot be reached: the sign-in has
+// to render, and work, with dAdmin down.
 
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
-import { apiFetch, apiPost } from "./utils/api";
+import { apiPost, DADMIN_API_BASE } from "./utils/api";
 import useAutofillSync from "./utils/useAutofillSync";
 import { useAccess } from "./utils/AccessContext";
+import { tprmAlert } from "./utils/tprmAlert";
 import { LogoLock, Centered, OtpBoxes } from "./TPRM_AccessBits";
 import logo_eagle from "./assets/img/logo_eagle.png";
 import "./TPRM_Access.css";
 
-// Fallback only. The live banners come from the banner table where active = 1,
-// ordered by sort_order, so a Practice Head changes them without a deploy.
-// These three cover the one moment that call cannot be reached: the database
-// being down, when the sign-in screen still has to render.
-const FALLBACK = [
+// Which dAdmin config row governs this screen. Exact case - it must match
+// LOGIN_APPS in dAdmin's Login_banner_server.js, or dAdmin answers with no
+// banners and this screen quietly shows its fallback forever.
+const APP_KEY = "dAssure";
+
+// Fallback only: the same three banners dAdmin holds for dAssure, so the
+// fallback and the live data agree and a dAdmin outage changes nothing visible.
+const FALLBACK_BANNERS = [
     {
-        banner_id: -1, tag_label: "TPRM",
-        headline: "Third party risk, evidenced",
-        subline: "An assertion is not evidence. Every control we score carries the proof behind it.",
+        banner_id: -1, tag_label: "EVIDENCE",
+        headline: "An assertion is not evidence",
+        subline: "A control claimed without proof is recorded as Not Evidenced and scores accordingly. The rule enforces itself.",
         gradient_from: "#0E1A2B", gradient_to: "#1E3350",
     },
     {
-        banner_id: -2, tag_label: "TECHNICAL ASSURANCE",
-        headline: "Assurance that holds up",
-        subline: "We test the estate the way an attacker would, and report it the way a board can act on.",
+        banner_id: -2, tag_label: "SEGREGATION",
+        headline: "Nobody approves their own work",
+        subline: "The reviewer can never be the assessor. Enforced in the database, not only in the interface.",
         gradient_from: "#123F3A", gradient_to: "#1B7A5A",
     },
     {
-        banner_id: -3, tag_label: "DOLLUZ CORP",
-        headline: "Cyber resilience, end to end",
-        subline: "Assurance and third party risk on one contract, so both halves of the problem talk to each other.",
+        banner_id: -3, tag_label: "TRACEABILITY",
+        headline: "Every score traces to an answer",
+        subline: "Residual risk is derived from inherent risk and control effectiveness. It is never typed in by hand.",
         gradient_from: "#3D2E08", gradient_to: "#8A6D12",
     },
 ];
 
-// What the library holds, shown on the way in.
-const STATS = [
-    ["36", "sector instruments"],
-    ["652", "questions"],
-    ["85", "standards mapped"],
+// What the library holds, shown on the way in - the fallback for dAdmin's
+// panel_stats. Strings on purpose: "652" and "24/7" belong in the same slot.
+const FALLBACK_STATS = [
+    { value: "36", label: "sector instruments" },
+    { value: "652", label: "questions" },
+    { value: "85", label: "standards mapped" },
 ];
+
+// Until dAdmin answers. Two-step ON, so a failed fetch can never hide the
+// remember control and so imply that verification is off. The server enforces
+// the real setting either way; this only decides what is shown.
+const DEFAULT_SIGNIN = { two_factor_enabled: 1, trust_days: 14 };
 
 // A sign-in failure is deliberately one message. Saying which field was wrong
 // tells an attacker whether the address exists.
@@ -58,36 +73,68 @@ const MESSAGES = {
     INVALID_CREDENTIALS: SIGNIN_FAILED,
     MFA_INVALID: "That code is not correct.",
     RESEND_LIMIT: "Too many codes sent. Sign in again to start over.",
+    RESEND_TOO_SOON: "Wait a few seconds before asking for another code.",
     OTP_EXPIRED: "That code has expired. Ask for another one.",
     OTP_BURNED: "That code is no longer usable. Start again and we will send a new one.",
     OTP_NOT_SENT: "No code is waiting on that address. Start again.",
     RESET_TOKEN_INVALID: "That reset attempt has expired. Start again.",
     SET_TOKEN_INVALID: "That took too long. Enter your address again for a fresh code.",
     PASSWORD_MISMATCH: "The two passwords do not match.",
+    CURRENT_PASSWORD_WRONG: "That is not your current password.",
+    PASSWORD_UNCHANGED: "Choose a password different from the one you have now.",
     NO_ENGAGEMENT:
         "Your account is valid, but you have not been assigned to a client engagement in dAssure yet. "
         + "Ask a Practice Head or Engagement Manager to grant you a role.",
 };
+
+// 1:47, not 107 seconds. Nobody counts in seconds past sixty.
+const clock = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
+
+/** The eye, for every password field on this screen. Out of the tab order so
+ *  tabbing goes field to field, not field to toggle to field. */
+function Reveal({ shown, onToggle }) {
+    return (
+        <button
+            type="button"
+            className="tprm-passtoggle"
+            onClick={onToggle}
+            aria-label={shown ? "Hide password" : "Show password"}
+            aria-pressed={shown}
+            tabIndex={-1}
+        >
+            {shown ? <FaEyeSlash /> : <FaEye />}
+        </button>
+    );
+}
 
 function TPRMLogin() {
     const navigate = useNavigate();
     const location = useLocation();
     const { refetch } = useAccess();
 
+    /* ------------------------------------------ the banner panel, from dAdmin */
     const [i, setI] = useState(0);
-    const [panels, setPanels] = useState(FALLBACK);
+    const [panels, setPanels] = useState(FALLBACK_BANNERS);
+    const [panelStats, setPanelStats] = useState(FALLBACK_STATS);
+    const [rotateSecs, setRotateSecs] = useState(3);
+    const [signinCfg, setSigninCfg] = useState(DEFAULT_SIGNIN);
     const [hover, setHover] = useState(false);
 
-    // login -> mfa -> Dashboard, plus the forgot-password detour.
-    const [step, setStep] = useState("login");
+    // login -> mfa -> Dashboard; the forgot-password detour; and, reached with
+    // ?changePassword by someone already signed in, the change-password pair.
+    const [step, setStep] = useState(() =>
+        new URLSearchParams(location.search).has("changePassword") ? "changePassword" : "login");
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     // A saved credential filled by the browser never fires onChange, so without
     // this the fields look complete while Continue stays greyed out.
     const emailRef = useRef(null);
     const passRef = useRef(null);
-    const [remember, setRemember] = useState(true);
+    // Unticked. Pre-ticking it would opt everybody into the whole trust window
+    // of skipped codes without their having chosen it.
+    const [remember, setRemember] = useState(false);
     const [mfaToken, setMfaToken] = useState(null);
+    const [mfaEmail, setMfaEmail] = useState("");
     const [code, setCode] = useState("");
     // Seconds left on the code the server issued. Counted down here rather
     // than guessed: the value comes from the same route that created it.
@@ -104,6 +151,10 @@ function TPRMLogin() {
     const [showConfirm, setShowConfirm] = useState(false);
     const [maskedReset, setMaskedReset] = useState("");
     const [pwHelp, setPwHelp] = useState("");
+    // Change password. The current password is held until the final call,
+    // because the server checks it again at the point of write.
+    const [currentPass, setCurrentPass] = useState("");
+    const [showCurrent, setShowCurrent] = useState(false);
 
     const [err, setErr] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -112,40 +163,72 @@ function TPRMLogin() {
     const [bounced, setBounced] = useState(
         () => (location.state && location.state.message) || null);
 
+    // Arriving with a reason - a session an administrator ended, an account
+    // with no engagement - means the reason is the thing to read. Resuming
+    // straight into a code step would mail a code and bury the explanation.
+    // Nor is there anything to resume when the visit is to change a password.
+    const skipResume = useRef(Boolean(location.state && location.state.message)
+        || new URLSearchParams(location.search).has("changePassword"));
+
     useAutofillSync([
         { ref: emailRef, value: username, set: setUsername },
         { ref: passRef, value: password, set: setPassword },
     ]);
 
+    // The panel config. A plain fetch: another origin, no cookie, no tenant id.
     useEffect(() => {
         let live = true;
-        apiFetch("/api/tprm/banners/public")
-            .then(r => (r.ok ? r.json() : []))
-            .then(rows => { if (live && rows.length) { setPanels(rows); setI(0); } })
-            .catch(() => { /* FALLBACK already on screen */ });
+        fetch(`${DADMIN_API_BASE}/api/login-banners/public?app=${encodeURIComponent(APP_KEY)}`)
+            .then(r => (r.ok ? r.json() : null))
+            .then(data => {
+                if (!live || !data) return;
+                // Only replace on a non-empty list. An app with no banners
+                // configured keeps the fallback rather than a blank panel.
+                if (Array.isArray(data.banners) && data.banners.length) {
+                    setPanels(data.banners);
+                    setI(0);
+                }
+                const secs = Number(data.rotate_seconds);
+                if (Number.isFinite(secs) && secs > 0) setRotateSecs(secs);
+                // An empty array is a real answer - "show no figures" - so only
+                // null or a missing field keeps the built-in three.
+                if (Array.isArray(data.panel_stats)) setPanelStats(data.panel_stats);
+                setSigninCfg({
+                    // Only an explicit 0 is "off".
+                    two_factor_enabled: Number(data.two_factor_enabled) === 0 ? 0 : 1,
+                    trust_days: Number(data.trust_days) || DEFAULT_SIGNIN.trust_days,
+                });
+            })
+            .catch(() => { /* the fallback is already on screen */ });
         return () => { live = false; };
     }, []);
 
-    // Three seconds, paused while the pointer rests on the pane so a reader is
-    // never interrupted mid-sentence.
+    // Rotates at dAdmin's interval, never faster than two seconds, paused while
+    // the pointer rests on the pane so a reader is never interrupted
+    // mid-sentence, and not at all with a single banner.
     useEffect(() => {
         if (hover || panels.length < 2) return;
-        const t = setInterval(() => setI(x => (x + 1) % panels.length), 3000);
+        const t = setInterval(() => setI(x => (x + 1) % panels.length),
+            Math.max(2, rotateSecs) * 1000);
         return () => clearInterval(t);
-    }, [hover, panels.length]);
+    }, [hover, panels.length, rotateSecs]);
 
     // Someone already signed into a sibling dApp has proved who they are but
     // not to this product, so they resume at the code step rather than retyping
-    // a password they have already given.
+    // a password they have already given. With two-step off the server answers
+    // NO_SESSION, and the password step is the right place to be.
     useEffect(() => {
+        if (skipResume.current) return;
         let live = true;
         apiPost("/api/tprm/login/mfa/resume", {})
             .then(r => {
                 if (!live || !r || !r.mfaToken) return;
                 setMfaToken(r.mfaToken);
-                setUsername(r.email || "");
+                setMfaEmail(r.maskedEmail || "");
                 setExpiresIn(Number(r.expiresIn) || 0);
                 setStep("mfa");
+                tprmAlert.success("Check your email",
+                    `We sent a sign-in code to ${r.maskedEmail || "your work email"}.`);
             })
             .catch(() => { /* no sibling session: the login step is correct */ });
         return () => { live = false; };
@@ -162,10 +245,17 @@ function TPRMLogin() {
 
     const backToLogin = (message) => {
         setStep("login");
-        setMfaToken(null); setCode(""); setExpiresIn(0); setPassword("");
+        setMfaToken(null); setMfaEmail(""); setCode(""); setExpiresIn(0); setPassword("");
         setResetToken(null); setSetToken(null);
-        setNewPass(""); setConfirmPass(""); setMaskedReset("");
+        setNewPass(""); setConfirmPass(""); setMaskedReset(""); setCurrentPass("");
         setErr(message || null);
+    };
+
+    // Every way in ends here: the announcement, the fresh permissions, the page.
+    const signedIn = async (text) => {
+        tprmAlert.success("Signed in", text);
+        await refetch();
+        navigate("/Dashboard", { replace: true });
     };
 
     /* ------------------------------------------------------- step one */
@@ -193,22 +283,27 @@ function TPRMLogin() {
 
         setBusy(true);
         try {
-            const r = await apiPost("/api/tprm/login/Verifylogin",
-                { username: email, password: pass, remember });
+            const r = await apiPost("/api/tprm/login/Verifylogin", {
+                username: email, password: pass,
+                // Only meaningful when there is a code step to skip.
+                remember: signinCfg.two_factor_enabled ? remember : false,
+            });
 
-            /* An account inside a live remember window is signed in already -
-               the server set the cookie rather than sending a code. There is
-               no second step to show. */
+            /* Signed in already - two-step is off, or this account is inside a
+               live remember window. The server set the cookie rather than
+               sending a code, so there is no second step to show. */
             if (r.next === "done") {
-                await refetch();
-                navigate("/Dashboard", { replace: true });
+                await signedIn();
                 return;
             }
 
             setMfaToken(r.mfaToken);
+            setMfaEmail(r.maskedEmail || "");
             setExpiresIn(Number(r.expiresIn) || 0);
             setCode("");
             setStep("mfa");
+            tprmAlert.success("Check your email",
+                `We sent a sign-in code to ${r.maskedEmail || "your work email"}.`);
         } catch (e2) {
             fail(e2);
         } finally {
@@ -223,6 +318,9 @@ function TPRMLogin() {
             const r = await apiPost("/api/tprm/login/mfa/resend", { mfaToken });
             setExpiresIn(Number(r.expiresIn) || 0);
             setCode("");
+            const to = r.maskedEmail || mfaEmail || "your work email";
+            if (r.maskedEmail) setMfaEmail(r.maskedEmail);
+            tprmAlert.success("Code resent", `A new code is on its way to ${to}.`);
         } catch (e2) {
             if (e2.message === "MFA_TOKEN_INVALID") {
                 backToLogin("That took too long. Please sign in again.");
@@ -240,9 +338,10 @@ function TPRMLogin() {
         setErr(null);
         setBusy(true);
         try {
-            await apiPost("/api/tprm/login/mfa/verify", { mfaToken, code: entered });
-            await refetch();
-            navigate("/Dashboard", { replace: true });
+            const r = await apiPost("/api/tprm/login/mfa/verify", { mfaToken, code: entered });
+            await signedIn(r && r.remembered
+                ? `You will not be asked again for ${r.trustDays || signinCfg.trust_days} days.`
+                : undefined);
         } catch (e2) {
             if (e2.message === "MFA_TOKEN_INVALID") {
                 backToLogin("That step timed out. Please sign in again.");
@@ -263,10 +362,6 @@ function TPRMLogin() {
         }
     };
 
-    const p = panels[Math.min(i, panels.length - 1)] || {};
-    const gradient = `linear-gradient(140deg, ${p.gradient_from || "#0E1A2B"} 0%, `
-        + `${p.gradient_to || "#1E3350"} 100%)`;
-
     /* ----------------------------------------------- forgot password */
     /*
      * Three steps: address, mailed code, new password. The same two minute
@@ -278,8 +373,6 @@ function TPRMLogin() {
      * Corp app authenticates against - so this changes it for all of them,
      * and the screen says so rather than letting somebody find out later.
      */
-    const clock = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
-
     const startReset = async (e) => {
         e.preventDefault();
         setBusy(true); setErr(null);
@@ -317,9 +410,12 @@ function TPRMLogin() {
         e.preventDefault();
         setBusy(true); setErr(null);
         try {
-            const r = await apiPost("/api/tprm/login/forgot/reset",
+            await apiPost("/api/tprm/login/forgot/reset",
                 { setToken, password: newPass, confirm: confirmPass });
-            backToLogin(r.message || "Password changed. Sign in with your new password.");
+            // A success is a receipt, not a warning, so it is a toast - not a
+            // message in the sign-in form's error slot.
+            tprmAlert.success("Password updated", "Sign in with your new password.");
+            backToLogin(null);
         } catch (ex) {
             // The rule is long, so a rejected password shows the rule rather
             // than a code. Everything else goes through the shared map.
@@ -329,6 +425,166 @@ function TPRMLogin() {
             if (ex.message === "SET_TOKEN_INVALID") setStep("forgot");
         } finally { setBusy(false); }
     };
+
+    /* ----------------------------------------------- change password */
+    // A 401 or 403 here means there is no dAssure session to change a password
+    // on - somebody followed the link while signed out.
+    const changeFail = (ex) => {
+        if (ex.status === 401 || ex.status === 403) {
+            setErr("You need to be signed in to change your password. Sign in, then choose "
+                + "Change password on My Account.");
+        } else if (ex.message === "PASSWORD_WEAK") {
+            setErr(pwHelp || "That password does not meet the rule.");
+        } else {
+            setErr(MESSAGES[ex.message] || ex.message || "Could not change the password");
+        }
+    };
+
+    const verifyCurrent = async (e) => {
+        e.preventDefault();
+        setBusy(true); setErr(null);
+        try {
+            const r = await apiPost("/api/tprm/login/change-password/verify",
+                { currentPassword: currentPass });
+            setPwHelp(r.passwordHelp || "");
+            setNewPass(""); setConfirmPass("");
+            setStep("changeNew");
+        } catch (ex) {
+            changeFail(ex);
+        } finally { setBusy(false); }
+    };
+
+    const saveChanged = async (e) => {
+        e.preventDefault();
+        setBusy(true); setErr(null);
+        try {
+            // The current password goes again: the server re-checks it here, at
+            // the point of write, not only on the step before.
+            await apiPost("/api/tprm/login/change-password", {
+                currentPassword: currentPass, newPassword: newPass, confirm: confirmPass,
+            });
+            setCurrentPass(""); setNewPass(""); setConfirmPass("");
+            tprmAlert.success("Password updated",
+                "It applies to every Dolluz Corp app, not just dAssure.");
+            navigate("/My_Account", { replace: true });
+        } catch (ex) {
+            if (ex.message === "CURRENT_PASSWORD_WRONG") setStep("changePassword");
+            changeFail(ex);
+        } finally { setBusy(false); }
+    };
+
+    const p = panels[Math.min(i, panels.length - 1)] || {};
+    // A banner is EITHER a full-panel image or gradient and copy. The file is
+    // served by dAdmin, so its path is prefixed with dAdmin's base.
+    const bannerImg = p.image_path ? `${DADMIN_API_BASE}${p.image_path}` : null;
+    const gradient = `linear-gradient(140deg, ${p.gradient_from || "#0E1A2B"} 0%, `
+        + `${p.gradient_to || "#1E3350"} 100%)`;
+    const twoStepOn = signinCfg.two_factor_enabled === 1;
+
+    /* ----------------------------------------- change password: current */
+    if (step === "changePassword") {
+        return (
+            <Centered title="Change password" sub="Enter your current password to continue.">
+                <form onSubmit={verifyCurrent}>
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-curpass">Current password</label>
+                        <div className="tprm-passwrap">
+                            <input
+                                id="tprm-curpass"
+                                className="tprm-input"
+                                type={showCurrent ? "text" : "password"}
+                                autoComplete="current-password"
+                                autoFocus
+                                value={currentPass}
+                                placeholder="Your current password"
+                                onChange={e => { setCurrentPass(e.target.value); setErr(null); }}
+                            />
+                            <Reveal shown={showCurrent} onToggle={() => setShowCurrent(v => !v)} />
+                        </div>
+                    </div>
+                    {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
+                    <button type="submit" className="tprm-btn primary wide"
+                        disabled={!currentPass || busy}>
+                        {busy ? "Checking…" : "Continue"}
+                    </button>
+                </form>
+                <div className="tprm-access-link">
+                    <button className="tprm-linkbtn" onClick={() => { setErr(null); setStep("forgot"); }}>
+                        Forgot your current password?
+                    </button>
+                </div>
+                <div className="tprm-access-link">
+                    <button className="tprm-linkbtn" onClick={() => navigate("/My_Account")}>
+                        Back to My Account
+                    </button>
+                </div>
+            </Centered>
+        );
+    }
+
+    /* ------------------------------------- change password: the new one */
+    if (step === "changeNew") {
+        const match = newPass.length > 0 && newPass === confirmPass;
+        return (
+            <Centered title="Choose a new password" sub={pwHelp}>
+                <form onSubmit={saveChanged}>
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-chnew">New password</label>
+                        <div className="tprm-passwrap">
+                            <input
+                                id="tprm-chnew"
+                                className="tprm-input"
+                                type={showNew ? "text" : "password"}
+                                autoComplete="new-password"
+                                autoFocus
+                                value={newPass}
+                                placeholder="Your new password"
+                                onChange={e => { setNewPass(e.target.value); setErr(null); }}
+                            />
+                            <Reveal shown={showNew} onToggle={() => setShowNew(v => !v)} />
+                        </div>
+                    </div>
+
+                    <div className="tprm-field">
+                        <label htmlFor="tprm-chconfirm">Confirm new password</label>
+                        <div className="tprm-passwrap">
+                            <input
+                                id="tprm-chconfirm"
+                                className="tprm-input"
+                                type={showConfirm ? "text" : "password"}
+                                autoComplete="new-password"
+                                value={confirmPass}
+                                placeholder="Type it again"
+                                onChange={e => { setConfirmPass(e.target.value); setErr(null); }}
+                            />
+                            <Reveal shown={showConfirm} onToggle={() => setShowConfirm(v => !v)} />
+                        </div>
+                        {confirmPass.length > 0 && !match && (
+                            <div className="tprm-hint" style={{ color: "var(--tprm-red)" }}>
+                                The two passwords do not match
+                            </div>
+                        )}
+                    </div>
+
+                    {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
+                    <button type="submit" className="tprm-btn primary wide"
+                        disabled={!match || busy}>
+                        {busy ? "Saving…" : "Save password"}
+                    </button>
+                    <div className="tprm-note" style={{ marginTop: 18 }}>
+                        This is your Dolluz Corp password, so it changes for every app, not just
+                        dAssure.
+                    </div>
+                </form>
+                <div className="tprm-access-link">
+                    <button className="tprm-linkbtn"
+                        onClick={() => { setErr(null); setStep("changePassword"); }}>
+                        Back
+                    </button>
+                </div>
+            </Centered>
+        );
+    }
 
     /* -------------------------------------------------- 1. the address */
     if (step === "forgot") {
@@ -351,10 +607,10 @@ function TPRMLogin() {
                             onChange={e => { setUsername(e.target.value); setErr(null); }}
                         />
                     </div>
-                    {err && <div className="tprm-alert error">{err}</div>}
+                    {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
                     <button type="submit" className="tprm-btn primary wide"
                         disabled={!username || busy}>
-                        {busy ? "Sending..." : "Send code"}
+                        {busy ? "Sending…" : "Send code"}
                     </button>
                     <div className="tprm-note" style={{ marginTop: 18 }}>
                         The reply is identical whether or not the address exists, so this screen
@@ -383,7 +639,7 @@ function TPRMLogin() {
                         <label htmlFor="tprm-reset-code">Six digit code</label>
                         <input
                             id="tprm-reset-code"
-                            className="tprm-input tprm-otp"
+                            className="tprm-input"
                             inputMode="numeric"
                             autoComplete="one-time-code"
                             autoFocus
@@ -398,13 +654,13 @@ function TPRMLogin() {
                     </div>
                     <div className={"tprm-otp-clock" + (dead ? " out" : expiresIn <= 30 ? " low" : "")}>
                         {dead
-                            ? "That code has expired. Ask for another."
+                            ? "Code expired"
                             : <>Expires in <span className="mono">{clock(expiresIn)}</span></>}
                     </div>
-                    {err && <div className="tprm-alert error">{err}</div>}
+                    {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
                     <button type="submit" className="tprm-btn primary wide"
                         disabled={code.length !== 6 || dead || busy}>
-                        {busy ? "Checking..." : "Continue"}
+                        {busy ? "Checking…" : "Continue"}
                     </button>
                 </form>
                 <div className="tprm-access-link">
@@ -419,18 +675,6 @@ function TPRMLogin() {
     /* --------------------------------------------- 3. the new password */
     if (step === "forgotPass") {
         const match = newPass.length > 0 && newPass === confirmPass;
-        const eye = (shown, toggle) => (
-            <button
-                type="button"
-                className="tprm-passtoggle"
-                onClick={toggle}
-                aria-label={shown ? "Hide password" : "Show password"}
-                aria-pressed={shown}
-                tabIndex={-1}
-            >
-                {shown ? <FaEyeSlash /> : <FaEye />}
-            </button>
-        );
         return (
             <Centered title="Choose a new password" sub={pwHelp}>
                 <form onSubmit={saveNewPassword}>
@@ -447,7 +691,7 @@ function TPRMLogin() {
                                 placeholder="Your new password"
                                 onChange={e => { setNewPass(e.target.value); setErr(null); }}
                             />
-                            {eye(showNew, () => setShowNew(v => !v))}
+                            <Reveal shown={showNew} onToggle={() => setShowNew(v => !v)} />
                         </div>
                     </div>
 
@@ -463,7 +707,7 @@ function TPRMLogin() {
                                 placeholder="Type it again"
                                 onChange={e => { setConfirmPass(e.target.value); setErr(null); }}
                             />
-                            {eye(showConfirm, () => setShowConfirm(v => !v))}
+                            <Reveal shown={showConfirm} onToggle={() => setShowConfirm(v => !v)} />
                         </div>
                         {confirmPass.length > 0 && !match && (
                             <div className="tprm-hint" style={{ color: "var(--tprm-red)" }}>
@@ -472,15 +716,16 @@ function TPRMLogin() {
                         )}
                     </div>
 
-                    {err && <div className="tprm-alert error">{err}</div>}
+                    {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
                     <button type="submit" className="tprm-btn primary wide"
                         disabled={!match || busy}>
-                        {busy ? "Saving..." : "Save password"}
+                        {busy ? "Saving…" : "Save password"}
                     </button>
                     <div className="tprm-note" style={{ marginTop: 18 }}>
                         This is your Dolluz Corp password, so it changes for every app, not just
-                        dAssure. Any live "remember for 14 days" window ends here too, so the next
-                        sign-in asks for a code again.
+                        dAssure.
+                        {twoStepOn && ` Any live "remember for ${signinCfg.trust_days} days" window `
+                            + "ends here too, so the next sign-in asks for a code again."}
                     </div>
                 </form>
             </Centered>
@@ -488,20 +733,17 @@ function TPRMLogin() {
     }
 
     /* ---------------------------------------------------- two factor */
-    // 1:47, not 107 seconds. Nobody counts in seconds past sixty.
-    const mmss = (n) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
-    const expired = step === "mfa" && expiresIn <= 0;
-    const low = expiresIn > 0 && expiresIn <= 30;
-
     if (step === "mfa") {
+        const expired = expiresIn <= 0;
+        const low = expiresIn > 0 && expiresIn <= 30;
         return (
             <Centered
                 title="Two factor"
-                sub={`Signed in as ${username || "your account"}. `
-                    + "Enter the six digit code from your authenticator app."}
+                sub={`We sent a six digit code to ${mfaEmail || "your work email"}. `
+                    + "Enter it to finish signing in."}
             >
                 <OtpBoxes
-                    key={expiresIn > 0 ? "live" : "dead"}
+                    key={expired ? "dead" : "live"}
                     value={code}
                     onChange={setCode}
                     onComplete={v => submitCode(v)}
@@ -512,8 +754,8 @@ function TPRMLogin() {
                     so the two occupy the same line rather than sitting apart. */}
                 <div className={"tprm-otp-clock" + (expired ? " out" : low ? " low" : "")}>
                     {expired
-                        ? "That code has expired."
-                        : <>Code expires in <b className="mono">{mmss(expiresIn)}</b></>}
+                        ? "Code expired"
+                        : <>Expires in <b className="mono">{clock(expiresIn)}</b></>}
                 </div>
 
                 {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
@@ -554,52 +796,60 @@ function TPRMLogin() {
     return (
         <div className="tprm-login">
             <div
-                className="tprm-login-panel"
-                style={{ background: gradient }}
+                className={"tprm-login-panel" + (bannerImg ? " tprm-login-panel--img" : "")}
+                style={bannerImg ? { backgroundImage: `url("${bannerImg}")` } : { background: gradient }}
                 onMouseEnter={() => setHover(true)}
                 onMouseLeave={() => setHover(false)}
             >
-                <img className="tprm-login-mark" src={logo_eagle} alt="" />
-                {/* Six concentric rings, barely there. The pane is otherwise a
-                    flat gradient, and a flat gradient reads as a placeholder
-                    rather than as a design. */}
-                <svg className="tprm-login-rings" viewBox="0 0 600 600" aria-hidden="true">
-                    {[0, 1, 2, 3, 4, 5].map(n => (
-                        <circle key={n} cx="300" cy="300" r={60 + n * 48}
-                            fill="none" stroke="#fff" strokeWidth="1.4" />
-                    ))}
-                </svg>
+                {/* An image banner fills the whole panel and nothing is painted
+                    over it. Only the dots remain, so it can still be driven. */}
+                {!bannerImg && (
+                    <>
+                        <img className="tprm-login-mark" src={logo_eagle} alt="" />
+                        {/* Six concentric rings, barely there. The pane is otherwise a
+                            flat gradient, and a flat gradient reads as a placeholder
+                            rather than as a design. */}
+                        <svg className="tprm-login-rings" viewBox="0 0 600 600" aria-hidden="true">
+                            {[0, 1, 2, 3, 4, 5].map(n => (
+                                <circle key={n} cx="300" cy="300" r={60 + n * 48}
+                                    fill="none" stroke="#fff" strokeWidth="1.4" />
+                            ))}
+                        </svg>
 
-                <LogoLock dark />
+                        <LogoLock dark />
 
-                <div className="tprm-login-panelbody">
-                    {p.tag_label && <div className="tprm-login-tag">{p.tag_label}</div>}
-                    <h1 className="tprm-login-headline">{p.headline}</h1>
-                    <p className="tprm-login-sub">{p.subline}</p>
-                    <div className="tprm-login-rule" />
-                    <div className="tprm-login-stats">
-                        {STATS.map(([n, label]) => (
-                            <div key={label}>
-                                <div className="tprm-login-stat-n">{n}</div>
-                                <div className="tprm-login-stat-l">{label}</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                        <div className="tprm-login-panelbody">
+                            {p.tag_label && <div className="tprm-login-tag">{p.tag_label}</div>}
+                            {p.headline && <h1 className="tprm-login-headline">{p.headline}</h1>}
+                            {p.subline && <p className="tprm-login-sub">{p.subline}</p>}
+                            <div className="tprm-login-rule" />
+                            {/* No figures configured is a real answer: no row at
+                                all, rather than an empty one holding the space. */}
+                            {panelStats.length > 0 && (
+                                <div className="tprm-login-stats">
+                                    {panelStats.map((st, n) => (
+                                        <div key={`${n}-${st.label}`}>
+                                            <div className="tprm-login-stat-n">{st.value}</div>
+                                            <div className="tprm-login-stat-l">{st.label}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </>
+                )}
 
                 <div className="tprm-login-dots">
-                    {panels.map((_, n) => (
+                    {panels.map((b, n) => (
                         <button
-                            key={n}
+                            key={b.banner_id ?? n}
                             type="button"
-                            aria-label={`Panel ${n + 1}`}
+                            // An image banner has no headline to name it by.
+                            aria-label={`Show banner ${n + 1}${b.headline ? `: ${b.headline}` : ""}`}
                             className={n === i ? "on" : ""}
                             onClick={() => setI(n)}
                         />
                     ))}
-                    <span className="tprm-login-rotstate">
-                        {hover ? "Paused" : "Rotating every 3 seconds"}
-                    </span>
                 </div>
 
                 {/* The standalone tagline is gone: the lockup at the top of this
@@ -645,16 +895,7 @@ function TPRMLogin() {
                                     onKeyUp={e => setCaps(e.getModifierState && e.getModifierState("CapsLock"))}
                                     onBlur={() => setCaps(false)}
                                 />
-                                <button
-                                    type="button"
-                                    className="tprm-passtoggle"
-                                    onClick={() => setShowPass(v => !v)}
-                                    aria-label={showPass ? "Hide password" : "Show password"}
-                                    aria-pressed={showPass}
-                                    tabIndex={-1}
-                                >
-                                    {showPass ? <FaEyeSlash /> : <FaEye />}
-                                </button>
+                                <Reveal shown={showPass} onToggle={() => setShowPass(v => !v)} />
                             </div>
                             {caps && (
                                 <div className="tprm-hint" style={{ color: "var(--tprm-amber)" }}>
@@ -664,21 +905,28 @@ function TPRMLogin() {
                         </div>
 
                         <div className="tprm-login-optrow">
-                            <label className="tprm-login-remember">
-                                <input
-                                    type="checkbox"
-                                    checked={remember}
-                                    onChange={e => setRemember(e.target.checked)}
-                                />
-                                Remember for 14 days
-                                <span
-                                    className="tprm-login-remember-note"
-                                    title={"Skips the emailed code for 14 days on this account, "
-                                        + "in any browser on any machine - not just this one."}
-                                >
-                                    any browser
-                                </span>
-                            </label>
+                            {/* Hidden when dAdmin has two-step off - there is then no
+                                code to skip. The window is account-level, hence
+                                "any browser". Ticking it here is carried through to
+                                the code step, which is where it is applied. */}
+                            {twoStepOn && (
+                                <label className="tprm-login-remember">
+                                    <input
+                                        type="checkbox"
+                                        checked={remember}
+                                        onChange={e => setRemember(e.target.checked)}
+                                    />
+                                    Remember for {signinCfg.trust_days} days
+                                    <span
+                                        className="tprm-login-remember-note"
+                                        title={`Skips the emailed code for ${signinCfg.trust_days} days `
+                                            + "on this account, in any browser on any machine - "
+                                            + "not just this one."}
+                                    >
+                                        any browser
+                                    </span>
+                                </label>
+                            )}
                             <button
                                 type="button"
                                 className="tprm-linkbtn tprm-login-forgot"
@@ -702,10 +950,12 @@ function TPRMLogin() {
                         </button>
                     </form>
 
-                    <div className="tprm-login-foot">
-                        Two factor is required at the next step for every account, internal and
-                        external.
-                    </div>
+                    {twoStepOn && (
+                        <div className="tprm-login-foot">
+                            Two factor is required at the next step for every account, internal and
+                            external.
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

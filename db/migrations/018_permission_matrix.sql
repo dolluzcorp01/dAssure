@@ -92,5 +92,4 @@ UPDATE tprm_permission SET sort_order = CASE perm_key
     WHEN 'report.generate'    THEN 18
     WHEN 'case.comment'       THEN 19
     WHEN 'assessment.hold'    THEN 20
-    WHEN 'banner.manage'      THEN 21
     ELSE sort_order END;

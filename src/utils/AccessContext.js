@@ -51,9 +51,16 @@ export function AccessProvider({ children }) {
                 // like 401 for routing, but keep the reason so the sign-in screen
                 // can explain rather than silently bouncing.
                 let reason = null;
-                if (res.status === 403) {
+                if (res.status === 403 || res.status === 401) {
                     const body = await res.json().catch(() => null);
-                    reason = (body && body.message) || 'You have no engagement in dAssure.';
+                    if (res.status === 403) {
+                        reason = (body && body.message) || 'You have no engagement in dAssure.';
+                    } else if (body && body.error === 'SESSION_REVOKED') {
+                        // Ended by an administrator in dAdmin. Carried through
+                        // like the 403 reason, so the sign-in screen says why
+                        // rather than looking like an ordinary sign-out.
+                        reason = body.message || 'Your session was ended. Sign in again to continue.';
+                    }
                 }
                 setUser(null); setTenants([]); setPermissions({}); setSetupMode(false);
                 setAccessError(reason);
@@ -84,6 +91,19 @@ export function AccessProvider({ children }) {
     }, []);
 
     useEffect(() => { refetch(); }, [refetch]);
+
+    // A revocation can land on any call, not just /me: apiFetch announces it,
+    // and the session is dropped here so ProtectedRoute bounces to /login with
+    // the reason - the same path every other refusal takes.
+    useEffect(() => {
+        const onRevoked = (e) => {
+            setUser(null); setTenants([]); setPermissions({}); setSetupMode(false);
+            setAccessError((e && e.detail) || 'Your session was ended. Sign in again to continue.');
+            setReady(true);
+        };
+        window.addEventListener('tprm:session-revoked', onRevoked);
+        return () => window.removeEventListener('tprm:session-revoked', onRevoked);
+    }, []);
 
     const setTenant = useCallback((id) => {
         setTenantId(Number(id));

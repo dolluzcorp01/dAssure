@@ -29,7 +29,6 @@ const SPEC_FOR = [
     ["/dashboard", "dash"],
     ["/findings", "findings"],
     ["/reports", "reports"],
-    ["/banners", "banners"],
     ["/clients", "clients"],
 ];
 

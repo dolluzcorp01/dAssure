@@ -23,7 +23,6 @@ import QuestionBank from "./TPRM_QuestionBank";
 import Methodology from "./TPRM_Methodology";
 import UsersAndRoles from "./TPRM_UsersAndRoles";
 import AuditTrail from "./TPRM_AuditTrail";
-import Banners from "./TPRM_Banners";
 import MyAccount from "./TPRM_MyAccount";
 
 import "./App.css";
@@ -86,8 +85,6 @@ function App() {
                                 <ProtectedRoute perm="user.grant"><UsersAndRoles /></ProtectedRoute>} />
                             <Route path="/Audit_Trail" element={
                                 <ProtectedRoute perm="audit.read"><AuditTrail /></ProtectedRoute>} />
-                            <Route path="/Banners" element={
-                                <ProtectedRoute perm="banner.manage"><Banners /></ProtectedRoute>} />
                             {/* No permission: everyone may see their own account. */}
                             <Route path="/My_Account" element={
                                 <ProtectedRoute><MyAccount /></ProtectedRoute>} />

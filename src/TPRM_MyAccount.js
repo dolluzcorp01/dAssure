@@ -1,19 +1,23 @@
 // My Account.
 //
-// Read only by design: dAdmin owns identity, so a name or password changed
-// here would immediately disagree with every other dApp. What this page is
-// for is the one thing dAdmin cannot answer - which client engagements you
-// hold in dAssure, and in what capacity.
+// Your name and email are read only here: dAdmin owns identity, so editing
+// them in dAssure would immediately disagree with every other dApp. Your
+// password is the exception - it can be changed from here, because the change
+// is written to the one shared credential and so applies everywhere at once.
+// What the rest of this page is for is the thing dAdmin cannot answer: which
+// client engagements you hold in dAssure, and in what capacity.
 //
 // Everything shown comes from /api/tprm/login/me, which the shell has already
 // fetched. There is no endpoint of its own.
 
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useAccess } from "./utils/AccessContext";
 import "./TPRM_MyAccount.css";
 
 function TPRMMyAccount() {
     const { user, tenants } = useAccess();
+    const navigate = useNavigate();
 
     if (!user) return <div className="tprm-loading">Loading your account...</div>;
 
@@ -87,9 +91,20 @@ function TPRMMyAccount() {
             </div>
 
             <div className="tprm-note" style={{ marginTop: 16 }}>
-                Your name, email and password are held in dAdmin and are the same across every
-                Dolluz Corp app, so they are changed there rather than here. Your role on each
-                client above is specific to dAssure and is granted under Users and Roles.
+                Your name and email are held in dAdmin and are the same across every Dolluz Corp
+                app. So is your password: you can change it here, and the new one applies to every
+                app, not just dAssure. Your role on each client above is specific to dAssure and is
+                granted under Users and Roles.
+            </div>
+
+            <div style={{ marginTop: 14 }}>
+                <button
+                    type="button"
+                    className="tprm-btn"
+                    onClick={() => navigate("/login?changePassword")}
+                >
+                    Change password
+                </button>
             </div>
         </div>
     );

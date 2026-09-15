@@ -1,4 +1,4 @@
-// Every email dTPRM sends, as pure render functions.
+// Every email dAssure sends, as pure render functions.
 //
 // Each returns { subject, html, text }. They take plain values and touch no
 // database, because BOTH the preview routes and the real send call them. That
@@ -15,29 +15,40 @@ const {
 /* ----------------------------------------------------------- sign-in code */
 
 /**
- * vars: { code, minutes }
+ * vars: { code, minutes, firstName }
  *
- * The code goes in the subject as well as the body so it can be read off a
- * phone's notification without opening anything.
+ * Matches dAdmin's sign-in code email, with the app name swapped. The code
+ * leads the subject so it reads in a phone's notification preview without
+ * opening anything.
+ *
+ * The warning is blunt on purpose. Reaching this step means the password was
+ * already correct, so a code nobody asked for is not a curiosity - it means
+ * the password is known.
  */
 function renderLoginOtpEmail(vars = {}) {
     const code = String(vars.code || "");
     const minutes = Number(vars.minutes || 2);
+    const name = vars.firstName ? esc(vars.firstName) : "there";
 
     return {
-        subject: `[TPRM] Your verification code: ${code}`,
+        subject: `${code} is your dAssure sign-in code`,
         html: buildOtpShell({
-            preheader: `Your dTPRM sign-in code is ${code}. It expires in ${minutes} minutes.`,
+            preheader: `${code} is your dAssure sign-in code. It expires in ${minutes} minutes.`,
             eyebrow: "Third Party Risk Management",
-            title: "Verify your sign-in",
-            intro: `Enter this code on the dTPRM sign-in screen to finish signing in. It expires in <strong>${minutes} minutes</strong> and can be used once.`,
+            title: "Your sign-in code",
+            intro: `Hi <strong>${name}</strong>,<br>Someone entered the correct password for your `
+                + `<strong>dAssure</strong> account. Enter the code below to finish signing in. `
+                + `It expires in <strong>${minutes} minutes</strong>.`,
             code,
-            warning: `If you did not try to sign in, someone may have your password. Change it and tell ${contactLink}. Do not share this OTP with anyone.`,
+            warning: `If this was not you, your password is known to someone else. Change it `
+                + `immediately and tell ${contactLink}. Never share this code.`,
         }),
-        text: `Your verification code is ${code}\n\n`
-            + `It expires in ${minutes} minutes and can be used once.\n\n`
-            + `If you did not try to sign in to Dolluz Corp TPRM, someone has your `
-            + `password. Change it, and tell ${CONTACT}.\n\n`
+        text: `Hi ${vars.firstName || "there"},\n\n`
+            + `Someone entered the correct password for your dAssure account. `
+            + `Enter this code to finish signing in: ${code}\n\n`
+            + `It expires in ${minutes} minutes.\n\n`
+            + `If this was not you, your password is known to someone else. Change it `
+            + `immediately and tell ${CONTACT}. Never share this code.\n\n`
             + `Regards\nThird Party Risk Management\nDolluz Corp`,
     };
 }

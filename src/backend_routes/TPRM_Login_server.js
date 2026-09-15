@@ -13,11 +13,18 @@
 // returns a short lived mfaToken. Only /mfa/verify sets the dTprm_token
 // cookie.
 //
-// The one way past the code step is "Remember for 14 days". Read what that
-// does before relying on it: the window is recorded against the ACCOUNT, not
-// against a device or a browser, so once it is open the password alone signs
-// in from anywhere. It is not a remembered device - it is the second factor
-// switched off for fourteen days. See 015_mfa_trust.sql.
+// Whether there is a code step at all, and how long "Remember for N days"
+// lasts, are dAdmin's to decide: Inside D -> Login Page Config, one row per app
+// in dadmin.login_app_config. Read on every sign-in, and failing CLOSED - a
+// config that cannot be read means two-step on and the default window.
+//
+// Read what remembering does before relying on it: the window is recorded
+// against the ACCOUNT, not against a device or a browser, so once it is open
+// the password alone signs in from anywhere. It is not a remembered device -
+// it is the second factor switched off for the window. See 015_mfa_trust.sql.
+//
+// dAdmin can also end a dAssure session outright. Its Revoke writes a marker to
+// dadmin.login_session_revoke, and verifyJWT refuses any token issued before it.
 
 require("dotenv").config();
 const express = require("express");
@@ -41,6 +48,37 @@ const tprm = getDBConnection(process.env.DB_NAME || 'dtprm').promise();
 const JWT_SECRET = process.env.JWT_SECRET;
 const isProd = process.env.NODE_ENV === "production";
 
+// Which dAdmin Login Page Config row governs this app: the two-step switch,
+// the trust window and the session revocation markers. Exact case - it must
+// match LOGIN_APPS in dAdmin's Login_banner_server.js.
+const APP_KEY = 'dAssure';
+
+/**
+ * The newest revocation marker dAdmin holds for this person or for the whole
+ * app ('*'), as WHOLE seconds, or null.
+ *
+ * Whole seconds because jwt's `iat` is second-granular: comparing milliseconds
+ * would kill a fresh sign-in made in the same second as a revoke.
+ *
+ * Never rejects. It fails OPEN on a database error: this is a revocation list,
+ * not the authentication itself, and a DB blip signing everybody out is worse
+ * than a revoked session surviving a few seconds. Logged loudly instead.
+ */
+async function revokedAfter(empId) {
+    try {
+        const [rows] = await dadmin.query(
+            `SELECT UNIX_TIMESTAMP(MAX(revoked_at)) AS sec
+               FROM login_session_revoke
+              WHERE app_key = ? AND emp_id IN (?, '*')`,
+            [APP_KEY, empId]);
+        const sec = rows && rows[0] ? rows[0].sec : null;
+        return sec ? Math.floor(Number(sec)) : null;
+    } catch (e) {
+        logError('session-revoke check failed (failing open)', e);
+        return null;
+    }
+}
+
 // 🔹 Middleware to verify JWT.
 //
 // Only a dTprm_token that completed the code step is a session here. The
@@ -55,15 +93,32 @@ const verifyJWT = (req, res, next) => {
         return jwt.verify(own, JWT_SECRET, (err, decoded) => {
             if (err) return res.status(403).json({ message: 'Invalid Token' });
             // Sessions minted before two factor existed carry no mfa claim.
-            // They are not trusted; the holder signs in again once.
+            // They are not trusted; the holder signs in again once. A session
+            // opened while dAdmin had two-step switched off carries
+            // mfa: "not_required" - truthy, and saying why no code was asked
+            // for - so it is accepted. Only an ABSENT claim is refused.
             if (!decoded.mfa) {
                 return res.status(401).json({
                     error: 'MFA_REQUIRED',
                     message: 'Two factor verification is required to continue',
                 });
             }
-            req.emp_id = decoded.emp_id;
-            next();
+            // Revoking in dAdmin writes a marker; a token issued in a second
+            // strictly earlier than it is dead for dAssure.
+            return revokedAfter(decoded.emp_id).then((sec) => {
+                if (sec !== null && decoded.iat && sec > decoded.iat) {
+                    // dTprm_token only. NEVER dolluzcorp_token: that one lives on
+                    // .dolluzcorp.com and every app reads it, so clearing it here
+                    // would sign the person out of all of them.
+                    res.clearCookie("dTprm_token", cookieOptions());
+                    return res.status(401).json({
+                        error: 'SESSION_REVOKED',
+                        message: 'An administrator ended your session. Sign in again to continue.',
+                    });
+                }
+                req.emp_id = decoded.emp_id;
+                next();
+            });
         });
     }
 
@@ -86,6 +141,37 @@ const cookieOptions = () => ({
     sameSite: isProd ? "None" : "Lax",
     domain: isProd ? ".dolluzcorp.com" : undefined,
 });
+
+const DEFAULT_SIGNIN = { two_factor_enabled: 1, trust_days: TRUST_DAYS };
+
+/**
+ * The two-step switch and the trust window dAdmin holds for dAssure. Read on
+ * each sign-in rather than cached, so a change made in dAdmin takes effect
+ * without a restart.
+ *
+ * FAILS CLOSED. An error, a missing table or a missing row all mean two-step
+ * ON with the default window, and only an explicit 0 switches it off - a
+ * config problem must never quietly downgrade the second factor.
+ *
+ * The screen reads the same row through dAdmin's public route, but only to
+ * decide what to SHOW. Enforcement is here.
+ */
+async function signinConfig() {
+    try {
+        const [rows] = await dadmin.query(
+            `SELECT two_factor_enabled, trust_days FROM login_app_config WHERE app_key = ?`,
+            [APP_KEY]);
+        if (!rows.length) return { ...DEFAULT_SIGNIN };
+        const days = Number(rows[0].trust_days);
+        return {
+            two_factor_enabled: Number(rows[0].two_factor_enabled) === 0 ? 0 : 1,
+            trust_days: Number.isFinite(days) && days >= 1 ? Math.round(days) : TRUST_DAYS,
+        };
+    } catch (e) {
+        logError('sign-in config unreadable - failing closed, two-step on', e);
+        return { ...DEFAULT_SIGNIN };
+    }
+}
 
 /* ----------------------------------------------------------- helpers */
 
@@ -114,6 +200,12 @@ async function liveOtpFor(empId, purpose = 'login') {
           ORDER BY otp_id DESC LIMIT 1`, [empId, purpose]);
     return rows[0] || null;
 }
+
+/** "Pavithran V V" -> "Pavithran", for the greeting on the code email. */
+const firstNameOf = (employee) => {
+    const n = String((employee && employee.emp_name) || '').trim().split(/\s+/)[0] || '';
+    return n ? n.charAt(0).toUpperCase() + n.slice(1) : '';
+};
 
 const secondsUntil = (t) => Math.max(0, Math.ceil((new Date(t) - Date.now()) / 1000));
 const secondsSince = (t) => Math.max(0, Math.floor((Date.now() - new Date(t)) / 1000));
@@ -152,8 +244,9 @@ async function sendOtp(req, employee, sendNo = 1, purpose = 'login') {
     const t = purpose === 'reset'
         ? mailer.templates.renderPasswordResetOtpEmail(
             { code, minutes: Math.round(OTP_TTL_SECONDS / 60) })
-        : mailer.templates.renderLoginOtpEmail(
-            { code, minutes: Math.round(OTP_TTL_SECONDS / 60) });
+        : mailer.templates.renderLoginOtpEmail({
+            code, minutes: Math.round(OTP_TTL_SECONDS / 60), firstName: firstNameOf(employee),
+        });
     const mailId = await mailer.queue({
         to: employee.emp_mail_id,
         subject: t.subject,
@@ -179,10 +272,14 @@ async function sendOtp(req, employee, sendNo = 1, purpose = 'login') {
  * The only place a dAssure session is created. The mfa claim is what verifyJWT
  * checks for, so a token minted anywhere else - including by a sibling dApp
  * sharing JWT_SECRET - does not open this product.
+ *
+ * `mfa` is true after a redeemed code or inside a live remember window, and
+ * "not_required" when dAdmin has two-step switched off. Truthy every time, and
+ * never absent: an absent claim is what verifyJWT refuses.
  */
-async function issueSession(req, res, employee, action) {
+async function issueSession(req, res, employee, action, mfa = true) {
     const token = jwt.sign(
-        { emp_id: employee.emp_id, mfa: true }, JWT_SECRET, { expiresIn: '12h' });
+        { emp_id: employee.emp_id, mfa }, JWT_SECRET, { expiresIn: '12h' });
     res.cookie("dTprm_token", token, cookieOptions());
     res.clearCookie("dTprm_signedout", cookieOptions());
     req.emp_id = employee.emp_id;
@@ -241,6 +338,17 @@ router.post("/Verifylogin", async (req, res) => {
         req.tprmUser = employee;
         await audit(req, { action: 'auth.password_ok', entity: 'employee', entityId: employee.emp_id });
 
+        /* Two-step switched off for dAssure in dAdmin: the password is the whole
+           of it. The session still carries an mfa claim - "not_required" - or
+           verifyJWT would refuse it as a pre-two-step token and nobody could
+           sign in. Audited as its own action, so the trail shows which
+           sessions were opened with no second step. */
+        const cfg = await signinConfig();
+        if (!cfg.two_factor_enabled) {
+            await issueSession(req, res, employee, 'auth.login_no_2fa', 'not_required');
+            return res.json({ next: "done", twoFactor: false });
+        }
+
         /* A live remember window signs in on the password alone. The window is
            held against the account, so this is reached from any browser on any
            machine - which is the point of it, and the whole of its cost. It is
@@ -249,7 +357,7 @@ router.post("/Verifylogin", async (req, res) => {
         const until = await trustedUntil(tprm, employee.emp_id);
         if (until) {
             await issueSession(req, res, employee, 'auth.login_remembered');
-            return res.json({ next: "done", trustedUntil: until });
+            return res.json({ next: "done", twoFactor: true, trustedUntil: until });
         }
 
         // Otherwise step two is not optional, so nothing is set on the browser
@@ -260,6 +368,7 @@ router.post("/Verifylogin", async (req, res) => {
         return res.json({
             next: "mfa",
             mfaToken: signMfaToken(employee.emp_id, req.body.remember),
+            trustDays: cfg.trust_days,
             ...sent,
         });
     } catch (e) {
@@ -286,6 +395,14 @@ router.post("/mfa/resume", async (req, res) => {
 
         const shared = req.cookies.dolluzcorp_token || req.cookies.dTprm_token;
         if (!shared) return res.status(401).json({ message: "NO_SESSION" });
+
+        /* With two-step switched off there is no code step to resume INTO, and
+           the only other thing this route could do - sign the holder straight
+           in - would turn any sibling app's cookie into a dAssure session with
+           no second proof, which is exactly what verifyJWT exists to refuse.
+           So the answer is the password screen, as though there were no cookie. */
+        const cfg = await signinConfig();
+        if (!cfg.two_factor_enabled) return res.status(401).json({ message: "NO_SESSION" });
 
         let empId = null;
         try { empId = jwt.verify(shared, JWT_SECRET).emp_id; }
@@ -417,17 +534,26 @@ router.post("/mfa/verify", async (req, res) => {
            window cannot start without a second factor having been passed at
            least once. */
         let trustedUntilAt = null;
+        let trustDays = null;
         if (claims.remember) {
-            await rememberAccount(tprm, empId, req.ip,
-                req.headers && req.headers['user-agent']);
-            trustedUntilAt = await trustedUntil(tprm, empId);
-            await audit(req, {
-                action: 'auth.remember_granted', entity: 'employee', entityId: empId,
-                after: { days: TRUST_DAYS, scope: 'account, any browser' },
-            });
+            // Read now, not at the password step, so an edit made in between
+            // is the one applied. Shortening the window later does NOT shorten
+            // one already granted - that is what dAdmin's Revoke is for.
+            const cfg = await signinConfig();
+            if (cfg.two_factor_enabled) {
+                trustDays = cfg.trust_days;
+                await rememberAccount(tprm, empId, req.ip,
+                    req.headers && req.headers['user-agent'], trustDays);
+                trustedUntilAt = await trustedUntil(tprm, empId);
+                await audit(req, {
+                    action: 'auth.remember_granted', entity: 'employee', entityId: empId,
+                    after: { days: trustDays, scope: 'account, any browser' },
+                });
+            }
         }
         return res.json({
-            success: true, message: "Login successful", trustedUntil: trustedUntilAt,
+            success: true, message: "Login successful",
+            remembered: !!trustedUntilAt, trustedUntil: trustedUntilAt, trustDays,
         });
     } catch (e) {
         logError("mfa/verify error", e, req);
@@ -609,6 +735,88 @@ router.post("/forgot/reset", async (req, res) => {
         });
     } catch (e) {
         logError("forgot/reset error", e, req);
+        return res.status(500).json({ message: "Database error" });
+    }
+});
+
+/* ---------------------------------------------------- change password */
+/*
+ * For someone already signed in who knows the password they want to replace.
+ * Reached from My Account via /login?changePassword.
+ *
+ * Two calls, because the screen is two steps - but the SECOND call re-checks
+ * the current password itself, at the point of write. Checking it only on the
+ * first call would make the first call advisory: anyone holding a session
+ * could post straight to the second and replace the password without knowing
+ * it. dAdmin's update-password has exactly that gap; this does not copy it.
+ *
+ * The same shared credential as forgot-password, so the same caveats: it
+ * changes the Dolluz Corp password for every app, and needs
+ * UPDATE (account_pass) on dadmin.employee.
+ */
+
+/** Checked against the database, never trusted from an earlier step. */
+async function passwordMatches(empId, candidate) {
+    if (!candidate) return false;
+    const [rows] = await dadmin.query(
+        `SELECT account_pass FROM employee WHERE emp_id = ? AND deleted_time IS NULL`,
+        [empId]);
+    const hash = rows[0] && rows[0].account_pass;
+    return !!(hash && bcrypt.compareSync(String(candidate), hash));
+}
+
+const rejectCurrent = async (req, res) => {
+    await audit(req, {
+        action: 'auth.change_password_rejected', entity: 'employee', entityId: req.emp_id,
+        reason: 'current password did not match',
+    });
+    return res.status(400).json({ message: "CURRENT_PASSWORD_WRONG" });
+};
+
+// Step one. Only decides whether the screen moves on.
+router.post("/change-password/verify", verifyJWT, async (req, res) => {
+    try {
+        const { currentPassword } = req.body || {};
+        if (!(await passwordMatches(req.emp_id, currentPassword))) return rejectCurrent(req, res);
+        return res.json({ next: "password", passwordHelp: PASSWORD_HELP });
+    } catch (e) {
+        logError("change-password/verify error", e, req);
+        return res.status(500).json({ message: "Database error" });
+    }
+});
+
+// Step two. Re-verifies the current password here, where it counts.
+router.post("/change-password", verifyJWT, async (req, res) => {
+    try {
+        const { currentPassword, newPassword, confirm } = req.body || {};
+        if (!(await passwordMatches(req.emp_id, currentPassword))) return rejectCurrent(req, res);
+
+        if (typeof confirm === 'string' && newPassword !== confirm) {
+            return res.status(400).json({ message: "PASSWORD_MISMATCH" });
+        }
+        if (!PASSWORD_RULE.test(String(newPassword || ''))) {
+            return res.status(400).json({ message: "PASSWORD_WEAK", detail: PASSWORD_HELP });
+        }
+        if (String(newPassword) === String(currentPassword)) {
+            return res.status(400).json({ message: "PASSWORD_UNCHANGED" });
+        }
+
+        const employee = await employeeById(req.emp_id);
+        if (!employee || !employee.active) return res.status(403).json({ message: "ACCOUNT_INACTIVE" });
+
+        // account_pass only: the documented grant is UPDATE (account_pass), so
+        // touching any other column would fail on a correctly granted install.
+        const hash = bcrypt.hashSync(String(newPassword), 10);
+        const [r] = await dadmin.query(
+            `UPDATE employee SET account_pass = ? WHERE emp_id = ? AND deleted_time IS NULL`,
+            [hash, req.emp_id]);
+        if (!r.affectedRows) return res.status(500).json({ message: "Database error" });
+
+        req.tprmUser = employee;
+        await audit(req, { action: 'auth.password_changed', entity: 'employee', entityId: req.emp_id });
+        return res.json({ success: true, message: "Password changed." });
+    } catch (e) {
+        logError("change-password error", e, req);
         return res.status(500).json({ message: "Database error" });
     }
 });
