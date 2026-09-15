@@ -40,7 +40,20 @@
 
 /* ------------------------------------------------------------- login */
 
-.tprm-login { display: flex; min-height: 100vh; }
+/* line-height: normal undoes Bootstrap's body 1.5, which dAttendance does not
+   load - without it every label, link and field here sits a little taller
+   than the same screen there. */
+.tprm-login { display: flex; min-height: 100vh; line-height: normal; }
+
+/* The focus ring dAttendance draws on every field and button of its sign-in
+   screen: a 2px orange outline just off the border, over the gold border and
+   glow of .tprm-input:focus. Declared before the dots rule below, which keeps
+   its own gold ring at the same specificity. */
+.tprm-login input:focus-visible,
+.tprm-login button:focus-visible {
+    outline: 2px solid var(--tprm-cta);
+    outline-offset: 1px;
+}
 
 .tprm-login-panel {
     flex: 1;
@@ -184,9 +197,21 @@
     box-sizing: border-box;
 }
 
-.tprm-login-formbox { width: 100%; }
+/* A flex column, as dAttendance's form column is, so neighbouring margins add
+   rather than collapse - the hint's bottom margin and the support line's top
+   margin both count. */
+.tprm-login-formbox { width: 100%; display: flex; flex-direction: column; }
 .tprm-login-formlock { margin-bottom: 40px; }
-.tprm-login-formbox h2 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 0; }
+/* line-height and colour set here because Bootstrap's h2 would otherwise give
+   1.2 and the body text colour. */
+.tprm-login-formbox h2 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    margin: 0;
+    line-height: normal;
+    color: var(--tprm-ink);
+}
 
 .tprm-login-formsub {
     font-size: 14px;
@@ -203,9 +228,24 @@
 }
 
 .tprm-login-remember { color: var(--tprm-muted); display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.tprm-login-remember input { width: 15px; height: 15px; margin: 0; accent-color: var(--tprm-ink); cursor: pointer; }
 .tprm-login-forgot { margin-left: auto; color: var(--tprm-blue); font-weight: 600; }
 
-.tprm-login-foot { font-size: 12.5px; color: var(--tprm-faint); margin-top: 16px; line-height: 1.6; }
+/* The bottom margin is a paragraph's own 1em there; the gap above the support
+   line depends on it. */
+.tprm-login-foot { font-size: 12.5px; color: var(--tprm-faint); margin: 16px 0 1em; line-height: 1.6; }
+
+/* The contact line at the foot of the form column, below a rule - the same
+   line dAttendance closes its sign-in column with. */
+.tprm-login-support {
+    margin-top: 26px;
+    padding-top: 16px;
+    border-top: 1px solid var(--tprm-line);
+    font-size: 12.5px;
+    color: var(--tprm-faint);
+}
+.tprm-login-support a { color: var(--tprm-blue); font-weight: 600; text-decoration: none; }
+.tprm-login-support a:hover { text-decoration: underline; }
 .tprm-login-err { font-size: 12px; color: var(--tprm-red); margin-top: 5px; }
 
 /* ------------------------------------------------- the centred cards */
@@ -270,6 +310,25 @@
 .tprm-otp input.filled { border-color: var(--tprm-ink); }
 .tprm-otp input:focus { border-color: var(--tprm-gold); box-shadow: 0 0 0 3px rgba(201, 162, 39, .22); }
 
+/* The sign-in code step, as dAttendance's "Enter the code". The field keeps
+   the page font - Poppins at 22px is what makes it the height it is there.
+   .tprm-otp-clock above is still what the forgot-password code step uses.
+   Written as .tprm-input.tprm-input--otp on purpose: App.css lands after this
+   file in the bundle, so a lone .tprm-input--otp loses font-size and padding
+   to its .tprm-input and the field shrinks back to an ordinary input. */
+.tprm-input.tprm-input--otp {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 8px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    padding: 12px 13px;
+}
+.tprm-input.tprm-input--otp::placeholder { letter-spacing: 8px; color: #C7D0DA; }
+
+/* The countdown inside the lede, so the sentence does not reflow as it ticks. */
+.tprm-login-count { font-variant-numeric: tabular-nums; color: var(--tprm-body); }
+
 .tprm-access-link {
     text-align: center;
     margin-top: 16px;
@@ -289,6 +348,13 @@
 .tprm-linkbtn:hover { text-decoration: underline; }
 .tprm-linkbtn:disabled { opacity: .5; cursor: default; text-decoration: none; }
 .tprm-linkbtn:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 3px; border-radius: 2px; }
+
+/* The left-hand link of an options row: grey and lighter, and it gives up the
+   margin-left:auto that pushes the right-hand link across. */
+.tprm-login-quiet { margin-left: 0; margin-right: auto; color: var(--tprm-muted); font-weight: 500; }
+
+/* "Resend in 24s" is waiting, not broken: faint, not the half-faded link. */
+.tprm-login-forgot:disabled { opacity: 1; color: var(--tprm-faint); cursor: not-allowed; }
 
 /* --------------------------------------------------------- invite */
 

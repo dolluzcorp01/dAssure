@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FaEye, FaEyeSlash, FaArrowLeft } from "react-icons/fa";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { apiPost, DADMIN_API_BASE } from "./utils/api";
 import useAutofillSync from "./utils/useAutofillSync";
 import { useAccess } from "./utils/AccessContext";
@@ -142,6 +142,10 @@ function TPRMLogin() {
     // Seconds left on the code the server issued. Counted down here rather
     // than guessed: the value comes from the same route that created it.
     const [expiresIn, setExpiresIn] = useState(0);
+    // Seconds before the server will post another sign-in code. It refuses a
+    // resend inside that window anyway (RESEND_TOO_SOON); counting it down here
+    // just says so on the link instead of letting the click fail.
+    const [resendIn, setResendIn] = useState(0);
     /* The reset walk. Two typed tokens, because the browser has to cross two
        gaps: address to code, and code to new password. resetToken says an
        address was submitted; setToken is minted only once a code is redeemed,
@@ -233,6 +237,7 @@ function TPRMLogin() {
                 setMfaEmail(r.maskedEmail || "");
                 setResumed(true);
                 setExpiresIn(Number(r.expiresIn) || 0);
+                setResendIn(Number(r.resendIn) || 0);
                 setStep("mfa");
                 tprmAlert.success("Check your email",
                     `We sent a sign-in code to ${r.maskedEmail || "your work email"}.`);
@@ -248,12 +253,18 @@ function TPRMLogin() {
         return () => clearInterval(t);
     }, [step, expiresIn]);
 
+    useEffect(() => {
+        if (step !== "mfa" || resendIn <= 0) return;
+        const t = setInterval(() => setResendIn(v => (v > 0 ? v - 1 : 0)), 1000);
+        return () => clearInterval(t);
+    }, [step, resendIn]);
+
     const fail = (e) => setErr(MESSAGES[e.message] || e.message || "Could not sign you in");
 
     const backToLogin = (message) => {
         setStep("login");
         setMfaToken(null); setMfaEmail(""); setResumed(false);
-        setCode(""); setExpiresIn(0); setPassword("");
+        setCode(""); setExpiresIn(0); setResendIn(0); setPassword("");
         setResetToken(null); setSetToken(null);
         setNewPass(""); setConfirmPass(""); setMaskedReset(""); setCurrentPass("");
         setErr(message || null);
@@ -309,6 +320,7 @@ function TPRMLogin() {
             setMfaEmail(r.maskedEmail || "");
             setResumed(false);
             setExpiresIn(Number(r.expiresIn) || 0);
+            setResendIn(Number(r.resendIn) || 0);
             setCode("");
             setStep("mfa");
             tprmAlert.success("Check your email",
@@ -327,6 +339,7 @@ function TPRMLogin() {
         try {
             const r = await apiPost("/api/tprm/login/mfa/resend", { mfaToken });
             setExpiresIn(Number(r.expiresIn) || 0);
+            setResendIn(Number(r.resendIn) || 0);
             setCode("");
             const to = r.maskedEmail || mfaEmail || "your work email";
             if (r.maskedEmail) setMfaEmail(r.maskedEmail);
@@ -811,11 +824,11 @@ function TPRMLogin() {
     }
 
     /* ---------------------------------------------------- two factor */
-    // The same two panes as the sign-in step, matching dAdmin's "Verify it is
-    // you": one field, the countdown and Resend on one row, no auto-submit.
+    // The same two panes as the sign-in step, matching dAttendance's "Enter the
+    // code": the countdown in the lede, one wide field, Back and Send a new
+    // code on one row, no auto-submit.
     if (step === "mfa") {
         const expired = expiresIn <= 0;
-        const low = expiresIn > 0 && expiresIn <= 30;
         return (
             <div className="tprm-login">
                 {bannerPane}
@@ -823,21 +836,22 @@ function TPRMLogin() {
                 <div className="tprm-login-form">
                     <div className="tprm-login-formbox">
                         <div className="tprm-login-formlock"><LogoLock sm /></div>
-                        <h2>Verify it is you</h2>
+                        <h2>Enter the code</h2>
                         <p className="tprm-login-formsub">
-                            {resumed
-                                ? "You are signed in to another Dolluz Corp app."
-                                : "Your password was correct."}
-                            {" "}Enter the 6-digit code we sent to{" "}
-                            <strong>{mfaEmail || "your work email"}</strong>.
+                            {resumed && "You are signed in to another Dolluz Corp app. "}
+                            We sent a 6-digit code to <strong>{mfaEmail || "your work email"}</strong>.{" "}
+                            {expired
+                                ? <>That code has expired — send a new one.</>
+                                : <>It expires in <strong className="tprm-login-count">{clock(expiresIn)}</strong>.</>}
                         </p>
 
                         <form onSubmit={e => { e.preventDefault(); submitCode(); }}>
                             <div className="tprm-field">
-                                <label htmlFor="tprm-mfa-code">Sign-in code</label>
+                                <label htmlFor="tprm-mfa-code">Verification code</label>
                                 <input
                                     id="tprm-mfa-code"
-                                    className="tprm-input"
+                                    className="tprm-input tprm-input--otp"
+                                    placeholder="••••••"
                                     inputMode="numeric"
                                     maxLength={6}
                                     autoComplete="one-time-code"
@@ -851,21 +865,17 @@ function TPRMLogin() {
                             </div>
 
                             <div className="tprm-login-optrow">
-                                <span
-                                    className={"tprm-otp-clock" + (expired ? " out" : low ? " low" : "")}
-                                    style={{ margin: 0 }}
-                                >
-                                    {expired
-                                        ? "Code expired"
-                                        : <>Expires in <b className="mono">{clock(expiresIn)}</b></>}
-                                </span>
+                                <button type="button" className="tprm-linkbtn tprm-login-quiet"
+                                    onClick={() => backToLogin(null)}>
+                                    ← Back
+                                </button>
                                 <button
                                     type="button"
                                     className="tprm-linkbtn tprm-login-forgot"
                                     onClick={resend}
-                                    disabled={busy}
+                                    disabled={busy || resendIn > 0}
                                 >
-                                    {sending ? "Sending…" : "Resend code"}
+                                    {sending ? "Sending…" : resendIn > 0 ? `Resend in ${resendIn}s` : "Send a new code"}
                                 </button>
                             </div>
 
@@ -880,10 +890,13 @@ function TPRMLogin() {
                             </button>
                         </form>
 
-                        <div className="tprm-access-link">
-                            <button type="button" className="tprm-linkbtn" onClick={() => backToLogin(null)}>
-                                <FaArrowLeft /> Use a different account
-                            </button>
+                        <div className="tprm-login-foot">
+                            Didn’t get it? Check your spam folder. The code is only valid for a
+                            couple of minutes, and never ask anyone to read it to them.
+                        </div>
+
+                        <div className="tprm-login-support">
+                            Trouble signing in? Contact <a href="mailto:admin@dolluzcorp.com">admin@dolluzcorp.com</a>
                         </div>
                     </div>
                 </div>
@@ -994,6 +1007,10 @@ function TPRMLogin() {
                             external.
                         </div>
                     )}
+
+                    <div className="tprm-login-support">
+                        Trouble signing in? Contact <a href="mailto:admin@dolluzcorp.com">admin@dolluzcorp.com</a>
+                    </div>
                 </div>
             </div>
         </div>

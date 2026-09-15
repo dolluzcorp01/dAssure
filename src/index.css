@@ -27,6 +27,7 @@
     --tprm-gold: #C9A227;
     --tprm-gold-2: #E5C765;
     --tprm-gold-ink: #231C05;      /* the text that sits on a gold fill */
+    --tprm-cta: #C94409;           /* the focus ring on the sign-in screen, as dAttendance draws it */
 
     /* semantic */
     --tprm-red: #B0392E;
