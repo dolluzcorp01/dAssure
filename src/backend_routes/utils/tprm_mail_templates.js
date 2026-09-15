@@ -34,7 +34,7 @@ function renderLoginOtpEmail(vars = {}) {
         subject: `${code} is your dAssure sign-in code`,
         html: buildOtpShell({
             preheader: `${code} is your dAssure sign-in code. It expires in ${minutes} minutes.`,
-            eyebrow: "Third Party Risk Management",
+            eyebrow: "dAssure Portal",
             title: "Your sign-in code",
             intro: `Hi <strong>${name}</strong>,<br>Someone entered the correct password for your `
                 + `<strong>dAssure</strong> account. Enter the code below to finish signing in. `
@@ -42,6 +42,7 @@ function renderLoginOtpEmail(vars = {}) {
             code,
             warning: `If this was not you, your password is known to someone else. Change it `
                 + `immediately and tell ${contactLink}. Never share this code.`,
+            footerLine: "dAssure Sign-in Verification",
         }),
         text: `Hi ${vars.firstName || "there"},\n\n`
             + `Someone entered the correct password for your dAssure account. `
@@ -49,7 +50,7 @@ function renderLoginOtpEmail(vars = {}) {
             + `It expires in ${minutes} minutes.\n\n`
             + `If this was not you, your password is known to someone else. Change it `
             + `immediately and tell ${CONTACT}. Never share this code.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
+            + `Regards\ndAssure Support\nDolluz Corp`,
     };
 }
 
@@ -223,23 +224,24 @@ function renderPasswordResetOtpEmail(vars = {}) {
     const minutes = Number(vars.minutes || 2);
 
     return {
-        subject: `[dAssure] Your password reset code: ${code}`,
+        subject: "dAssure - Password Reset OTP",
         html: buildOtpShell({
             preheader: `Your dAssure password reset code is ${code}. It expires in ${minutes} minutes.`,
-            eyebrow: "Third Party Risk Management",
-            title: "Reset your password",
+            eyebrow: "dAssure Portal",
+            title: "Password Reset OTP",
             intro: `Enter this code on the dAssure reset screen to choose a new password. It expires`
                 + ` in <strong>${minutes} minutes</strong> and can be used once.`,
             code,
             warning: `If you did not ask to reset your password, do not enter this code. Somebody`
                 + ` else may know your address. Tell ${contactLink} straight away.`,
+            footerLine: "dAssure Password Reset OTP",
         }),
         text: `Your password reset code is ${code}\n\n`
             + `It expires in ${minutes} minutes and can be used once.\n\n`
             + `Enter it on the dAssure reset screen to choose a new password.\n\n`
             + `If you did not ask to reset your password, do not enter this code. `
             + `Somebody else may know your address. Tell ${CONTACT} straight away.\n\n`
-            + `Regards\nThird Party Risk Management\nDolluz Corp`,
+            + `Regards\ndAssure Support\nDolluz Corp`,
     };
 }
 

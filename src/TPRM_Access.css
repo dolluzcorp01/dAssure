@@ -287,6 +287,7 @@
 }
 
 .tprm-linkbtn:hover { text-decoration: underline; }
+.tprm-linkbtn:disabled { opacity: .5; cursor: default; text-decoration: none; }
 .tprm-linkbtn:focus-visible { outline: 2px solid var(--tprm-blue); outline-offset: 3px; border-radius: 2px; }
 
 /* --------------------------------------------------------- invite */

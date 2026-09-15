@@ -14,12 +14,12 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { FaEye, FaEyeSlash } from "react-icons/fa";
+import { FaEye, FaEyeSlash, FaArrowLeft } from "react-icons/fa";
 import { apiPost, DADMIN_API_BASE } from "./utils/api";
 import useAutofillSync from "./utils/useAutofillSync";
 import { useAccess } from "./utils/AccessContext";
 import { tprmAlert } from "./utils/tprmAlert";
-import { LogoLock, Centered, OtpBoxes } from "./TPRM_AccessBits";
+import { LogoLock, Centered } from "./TPRM_AccessBits";
 import logo_eagle from "./assets/img/logo_eagle.png";
 import "./TPRM_Access.css";
 
@@ -135,6 +135,9 @@ function TPRMLogin() {
     const [remember, setRemember] = useState(false);
     const [mfaToken, setMfaToken] = useState(null);
     const [mfaEmail, setMfaEmail] = useState("");
+    // True when the code step came from /mfa/resume: signed in to a sibling
+    // app, so no password was typed here and the lede must not claim one was.
+    const [resumed, setResumed] = useState(false);
     const [code, setCode] = useState("");
     // Seconds left on the code the server issued. Counted down here rather
     // than guessed: the value comes from the same route that created it.
@@ -158,6 +161,9 @@ function TPRMLogin() {
 
     const [err, setErr] = useState(null);
     const [busy, setBusy] = useState(false);
+    // Which busy it is, when it is a resend - so the resend link says
+    // Sending while the verify button does not claim to be verifying.
+    const [sending, setSending] = useState(false);
     const [showPass, setShowPass] = useState(false);
     const [caps, setCaps] = useState(false);
     const [bounced, setBounced] = useState(
@@ -225,6 +231,7 @@ function TPRMLogin() {
                 if (!live || !r || !r.mfaToken) return;
                 setMfaToken(r.mfaToken);
                 setMfaEmail(r.maskedEmail || "");
+                setResumed(true);
                 setExpiresIn(Number(r.expiresIn) || 0);
                 setStep("mfa");
                 tprmAlert.success("Check your email",
@@ -245,7 +252,8 @@ function TPRMLogin() {
 
     const backToLogin = (message) => {
         setStep("login");
-        setMfaToken(null); setMfaEmail(""); setCode(""); setExpiresIn(0); setPassword("");
+        setMfaToken(null); setMfaEmail(""); setResumed(false);
+        setCode(""); setExpiresIn(0); setPassword("");
         setResetToken(null); setSetToken(null);
         setNewPass(""); setConfirmPass(""); setMaskedReset(""); setCurrentPass("");
         setErr(message || null);
@@ -299,6 +307,7 @@ function TPRMLogin() {
 
             setMfaToken(r.mfaToken);
             setMfaEmail(r.maskedEmail || "");
+            setResumed(false);
             setExpiresIn(Number(r.expiresIn) || 0);
             setCode("");
             setStep("mfa");
@@ -314,6 +323,7 @@ function TPRMLogin() {
     const resend = async () => {
         setErr(null);
         setBusy(true);
+        setSending(true);
         try {
             const r = await apiPost("/api/tprm/login/mfa/resend", { mfaToken });
             setExpiresIn(Number(r.expiresIn) || 0);
@@ -329,6 +339,7 @@ function TPRMLogin() {
             }
         } finally {
             setBusy(false);
+            setSending(false);
         }
     };
 
@@ -480,6 +491,73 @@ function TPRMLogin() {
     const gradient = `linear-gradient(140deg, ${p.gradient_from || "#0E1A2B"} 0%, `
         + `${p.gradient_to || "#1E3350"} 100%)`;
     const twoStepOn = signinCfg.two_factor_enabled === 1;
+
+    // The left pane, identical on the sign-in step and the code step, so
+    // moving between them changes only the form beside it.
+    const bannerPane = (
+        <div
+            className={"tprm-login-panel" + (bannerImg ? " tprm-login-panel--img" : "")}
+            style={bannerImg ? { backgroundImage: `url("${bannerImg}")` } : { background: gradient }}
+            onMouseEnter={() => setHover(true)}
+            onMouseLeave={() => setHover(false)}
+        >
+            {/* An image banner fills the whole panel and nothing is painted
+                over it. Only the dots remain, so it can still be driven. */}
+            {!bannerImg && (
+                <>
+                    <img className="tprm-login-mark" src={logo_eagle} alt="" />
+                    {/* Six concentric rings, barely there. The pane is otherwise a
+                        flat gradient, and a flat gradient reads as a placeholder
+                        rather than as a design. */}
+                    <svg className="tprm-login-rings" viewBox="0 0 600 600" aria-hidden="true">
+                        {[0, 1, 2, 3, 4, 5].map(n => (
+                            <circle key={n} cx="300" cy="300" r={60 + n * 48}
+                                fill="none" stroke="#fff" strokeWidth="1.4" />
+                        ))}
+                    </svg>
+
+                    <LogoLock dark />
+
+                    <div className="tprm-login-panelbody">
+                        {p.tag_label && <div className="tprm-login-tag">{p.tag_label}</div>}
+                        {p.headline && <h1 className="tprm-login-headline">{p.headline}</h1>}
+                        {p.subline && <p className="tprm-login-sub">{p.subline}</p>}
+                        <div className="tprm-login-rule" />
+                        {/* No figures configured is a real answer: no row at
+                            all, rather than an empty one holding the space. */}
+                        {panelStats.length > 0 && (
+                            <div className="tprm-login-stats">
+                                {panelStats.map((st, n) => (
+                                    <div key={`${n}-${st.label}`}>
+                                        <div className="tprm-login-stat-n">{st.value}</div>
+                                        <div className="tprm-login-stat-l">{st.label}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
+
+            <div className="tprm-login-dots">
+                {panels.map((b, n) => (
+                    <button
+                        key={b.banner_id ?? n}
+                        type="button"
+                        // An image banner has no headline to name it by.
+                        aria-label={`Show banner ${n + 1}${b.headline ? `: ${b.headline}` : ""}`}
+                        className={n === i ? "on" : ""}
+                        onClick={() => setI(n)}
+                    />
+                ))}
+            </div>
+
+            {/* The standalone tagline is gone: the lockup at the top of this
+                same panel now carries "One Place . One Start . One Team" as
+                part of the artwork, and printing it twice on one screen made
+                the panel read as a mistake. */}
+        </div>
+    );
 
     /* ----------------------------------------- change password: current */
     if (step === "changePassword") {
@@ -733,130 +811,90 @@ function TPRMLogin() {
     }
 
     /* ---------------------------------------------------- two factor */
+    // The same two panes as the sign-in step, matching dAdmin's "Verify it is
+    // you": one field, the countdown and Resend on one row, no auto-submit.
     if (step === "mfa") {
         const expired = expiresIn <= 0;
         const low = expiresIn > 0 && expiresIn <= 30;
         return (
-            <Centered
-                title="Two factor"
-                sub={`We sent a six digit code to ${mfaEmail || "your work email"}. `
-                    + "Enter it to finish signing in."}
-            >
-                <OtpBoxes
-                    key={expired ? "dead" : "live"}
-                    value={code}
-                    onChange={setCode}
-                    onComplete={v => submitCode(v)}
-                    disabled={busy || expired}
-                />
+            <div className="tprm-login">
+                {bannerPane}
 
-                {/* The clock is the reason the Resend button is not there yet,
-                    so the two occupy the same line rather than sitting apart. */}
-                <div className={"tprm-otp-clock" + (expired ? " out" : low ? " low" : "")}>
-                    {expired
-                        ? "Code expired"
-                        : <>Expires in <b className="mono">{clock(expiresIn)}</b></>}
+                <div className="tprm-login-form">
+                    <div className="tprm-login-formbox">
+                        <div className="tprm-login-formlock"><LogoLock sm /></div>
+                        <h2>Verify it is you</h2>
+                        <p className="tprm-login-formsub">
+                            {resumed
+                                ? "You are signed in to another Dolluz Corp app."
+                                : "Your password was correct."}
+                            {" "}Enter the 6-digit code we sent to{" "}
+                            <strong>{mfaEmail || "your work email"}</strong>.
+                        </p>
+
+                        <form onSubmit={e => { e.preventDefault(); submitCode(); }}>
+                            <div className="tprm-field">
+                                <label htmlFor="tprm-mfa-code">Sign-in code</label>
+                                <input
+                                    id="tprm-mfa-code"
+                                    className="tprm-input"
+                                    inputMode="numeric"
+                                    maxLength={6}
+                                    autoComplete="one-time-code"
+                                    autoFocus
+                                    value={code}
+                                    onChange={e => {
+                                        setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
+                                        setErr(null);
+                                    }}
+                                />
+                            </div>
+
+                            <div className="tprm-login-optrow">
+                                <span
+                                    className={"tprm-otp-clock" + (expired ? " out" : low ? " low" : "")}
+                                    style={{ margin: 0 }}
+                                >
+                                    {expired
+                                        ? "Code expired"
+                                        : <>Expires in <b className="mono">{clock(expiresIn)}</b></>}
+                                </span>
+                                <button
+                                    type="button"
+                                    className="tprm-linkbtn tprm-login-forgot"
+                                    onClick={resend}
+                                    disabled={busy}
+                                >
+                                    {sending ? "Sending…" : "Resend code"}
+                                </button>
+                            </div>
+
+                            {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
+
+                            <button
+                                type="submit"
+                                className="tprm-btn primary wide"
+                                disabled={busy || expired || code.length < 6}
+                            >
+                                {busy && !sending ? "Verifying…" : "Verify and sign in"}
+                            </button>
+                        </form>
+
+                        <div className="tprm-access-link">
+                            <button type="button" className="tprm-linkbtn" onClick={() => backToLogin(null)}>
+                                <FaArrowLeft /> Use a different account
+                            </button>
+                        </div>
+                    </div>
                 </div>
-
-                {err && <div className="tprm-note danger" style={{ marginBottom: 14 }}>{err}</div>}
-
-                {expired ? (
-                    <button
-                        className={"tprm-btn gold wide" + (busy ? " loading" : "")}
-                        disabled={busy}
-                        onClick={resend}
-                    >
-                        {busy ? "Sending…" : "Resend code"}
-                    </button>
-                ) : (
-                    <button
-                        className="tprm-btn primary wide"
-                        disabled={busy || code.replace(/\D/g, "").length < 6}
-                        onClick={() => submitCode()}
-                    >
-                        {busy ? "Verifying…" : "Verify and continue"}
-                    </button>
-                )}
-
-                <div className="tprm-note" style={{ marginTop: 20 }}>
-                    Mandatory for every role, including Client Viewer. Three failures returns to the
-                    login screen and writes an audit event.
-                </div>
-
-                <div className="tprm-access-link">
-                    <button className="tprm-linkbtn" onClick={() => backToLogin(null)}>
-                        Back to sign in
-                    </button>
-                </div>
-            </Centered>
+            </div>
         );
     }
 
     /* --------------------------------------------------------- login */
     return (
         <div className="tprm-login">
-            <div
-                className={"tprm-login-panel" + (bannerImg ? " tprm-login-panel--img" : "")}
-                style={bannerImg ? { backgroundImage: `url("${bannerImg}")` } : { background: gradient }}
-                onMouseEnter={() => setHover(true)}
-                onMouseLeave={() => setHover(false)}
-            >
-                {/* An image banner fills the whole panel and nothing is painted
-                    over it. Only the dots remain, so it can still be driven. */}
-                {!bannerImg && (
-                    <>
-                        <img className="tprm-login-mark" src={logo_eagle} alt="" />
-                        {/* Six concentric rings, barely there. The pane is otherwise a
-                            flat gradient, and a flat gradient reads as a placeholder
-                            rather than as a design. */}
-                        <svg className="tprm-login-rings" viewBox="0 0 600 600" aria-hidden="true">
-                            {[0, 1, 2, 3, 4, 5].map(n => (
-                                <circle key={n} cx="300" cy="300" r={60 + n * 48}
-                                    fill="none" stroke="#fff" strokeWidth="1.4" />
-                            ))}
-                        </svg>
-
-                        <LogoLock dark />
-
-                        <div className="tprm-login-panelbody">
-                            {p.tag_label && <div className="tprm-login-tag">{p.tag_label}</div>}
-                            {p.headline && <h1 className="tprm-login-headline">{p.headline}</h1>}
-                            {p.subline && <p className="tprm-login-sub">{p.subline}</p>}
-                            <div className="tprm-login-rule" />
-                            {/* No figures configured is a real answer: no row at
-                                all, rather than an empty one holding the space. */}
-                            {panelStats.length > 0 && (
-                                <div className="tprm-login-stats">
-                                    {panelStats.map((st, n) => (
-                                        <div key={`${n}-${st.label}`}>
-                                            <div className="tprm-login-stat-n">{st.value}</div>
-                                            <div className="tprm-login-stat-l">{st.label}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
-
-                <div className="tprm-login-dots">
-                    {panels.map((b, n) => (
-                        <button
-                            key={b.banner_id ?? n}
-                            type="button"
-                            // An image banner has no headline to name it by.
-                            aria-label={`Show banner ${n + 1}${b.headline ? `: ${b.headline}` : ""}`}
-                            className={n === i ? "on" : ""}
-                            onClick={() => setI(n)}
-                        />
-                    ))}
-                </div>
-
-                {/* The standalone tagline is gone: the lockup at the top of this
-                    same panel now carries "One Place . One Start . One Team" as
-                    part of the artwork, and printing it twice on one screen made
-                    the panel read as a mistake. */}
-            </div>
+            {bannerPane}
 
             <div className="tprm-login-form">
                 <div className="tprm-login-formbox">

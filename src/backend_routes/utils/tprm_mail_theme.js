@@ -81,18 +81,18 @@ function buildShell({ preheader, eyebrow, heroEmoji, heroTitle, heroSub, bodyHtm
  * should attract the eye is the six digits, and a button beside them is an
  * invitation to click something in an email about authentication.
  */
-function buildOtpShell({ preheader, eyebrow, title, intro, code, warning }) {
+function buildOtpShell({ preheader, eyebrow, title, intro, code, warning, footerLine }) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
 <body style="margin:0;padding:0;font-family:'DM Sans',Arial,sans-serif;background:#F0F4F8;color:${NAVY}">
   <span style="display:none;max-height:0;overflow:hidden">${esc(preheader || "")}</span>
   <div style="max-width:520px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.10)">
-    <div style="background:${NAVY};padding:20px 32px">
+    <div style="background:${NAVY};padding:28px 36px 20px">
       <div style="font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px">Dolluz Corp<span style="color:${ORANGE}">.</span></div>
       ${eyebrow ? `<div style="font-size:11px;color:#94A3B8;letter-spacing:2px;text-transform:uppercase;margin-top:4px">${eyebrow}</div>` : ""}
     </div>
-    <div style="background:#fff;padding:32px">
+    <div style="background:#fff;padding:32px 36px">
       <div style="font-size:15px;font-weight:700;color:${NAVY};margin-bottom:8px">${esc(title)}</div>
       <div style="font-size:13px;color:#64748B;line-height:1.6;margin-bottom:24px">${intro}</div>
       <div style="background:#F8FAFC;border:2px dashed ${ORANGE};border-radius:12px;padding:20px;text-align:center;margin-bottom:24px">
@@ -100,10 +100,7 @@ function buildOtpShell({ preheader, eyebrow, title, intro, code, warning }) {
       </div>
       <div style="font-size:12px;color:#94A3B8;line-height:1.6">${warning || "If you did not request this, please ignore this email. Do not share this OTP with anyone."}</div>
     </div>
-    <div style="background:#F8FAFC;border-top:1px solid #E2E8F0;padding:18px 32px;text-align:center;font-size:11px;color:#94A3B8">
-      &copy; ${new Date().getFullYear()} Dolluz Corp<span style="color:${ORANGE}">.</span> All rights reserved.<br>
-      Questions? <a href="mailto:${CONTACT}" style="color:${ORANGE}">${CONTACT}</a>
-    </div>
+    <div style="background:#F8FAFC;padding:16px 36px;text-align:center;font-size:11px;color:#94A3B8">Dolluz Corp &middot; ${esc(footerLine || "dAssure")}<br>For any queries, please contact <a href="mailto:${CONTACT}" style="color:#E8520A;text-decoration:none">${CONTACT}</a></div>
   </div>
 </body>
 </html>`;

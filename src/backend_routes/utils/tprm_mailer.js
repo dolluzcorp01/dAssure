@@ -19,7 +19,10 @@ const DRIVER = process.env.TPRM_MAIL_DRIVER || 'outbox';
 // address we put in front of a reader. Anywhere a person is told where to
 // write - reply-to, or the sign-off in a template - it is CONTACT.
 const FROM = process.env.TPRM_MAIL_FROM || 'connect@dolluzcorp.com';
-const FROM_NAME = process.env.TPRM_MAIL_FROM_NAME || 'Dolluz Corp TPRM';
+// The sender's display name, fixed in code rather than read from the
+// environment - every dApp signs its own mail the same way (dAdmin sends as
+// "dAdmin Support"), so this is not a per-install setting.
+const FROM_NAME = 'dAssure Support';
 const CONTACT = process.env.TPRM_MAIL_CONTACT || 'admin@dolluzcorp.com';
 
 // Mail addressed to the admin inbox is copied to these two. Mail to anyone
