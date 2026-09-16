@@ -9,6 +9,8 @@
 // these are three separate files and not one.
 
 const ExcelJS = require('exceljs');
+const archiver = require('archiver');
+const unzipper = require('unzipper');
 const path = require('path');
 const fs = require('fs');
 
@@ -30,7 +32,7 @@ const LINE = 'FFDCE3EB';
 // lockup in proportion - the old code forced the eagle into a 150x38 box, which
 // squashed it flat.
 const LOGO_ASPECT = 3805 / 994;
-const LOGO_H = 22;
+const LOGO_H = 36;
 const LOGO_W = Math.round(LOGO_H * LOGO_ASPECT);
 
 // The title sits in the same merged cell the logo floats over, pushed clear of
@@ -44,9 +46,15 @@ const TITLE_INDENT = Math.ceil((LOGO_PAD_PX + LOGO_W + 20) / 8);
 // One pixel in EMU, the unit a drawing anchor is stored in.
 const EMU = 9525;
 
-function brand(wb, ws, title, subtitle) {
-    ws.getRow(1).height = 34;
-    ws.mergeCells('A1:H1');
+function brand(wb, ws, title, subtitle, span) {
+    // The band runs the width of the table it heads, not a fixed eight columns:
+    // a 20 column tiering pack with an A1:H1 band looks like the colour ran out
+    // half way across.
+    const last = ws.getColumn(Math.max(2, span || 8)).letter;
+    // Tall enough to carry the lockup with air above and below it: the band is
+    // the only place the mark appears, so it is drawn at a size that reads.
+    ws.getRow(1).height = 38;
+    ws.mergeCells(`A1:${last}1`);
 
     const t = ws.getCell('A1');
     t.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: NAVY } };
@@ -73,7 +81,7 @@ function brand(wb, ws, title, subtitle) {
     s.value = subtitle;
     s.font = { name: 'Calibri', size: 9, color: { argb: 'FF5E6E80' } };
     s.alignment = { vertical: 'middle' };
-    ws.mergeCells('A2:H2');
+    ws.mergeCells(`A2:${last}2`);
     ws.getRow(2).height = 16;
 }
 
@@ -92,6 +100,180 @@ function headerRow(ws, rowNo, headers, widths) {
     ws.views = [{ state: 'frozen', ySplit: rowNo }];
 }
 
+/* ============================================ the dApps workbook theme ====
+   The colours the rest of the suite issues its templates in. A header's fill
+   is the one thing that says whether a column MUST be filled in, so the three
+   fills are the whole grammar of these files:
+
+     orange  you must answer this
+     blue    optional, and there is a dropdown
+     grey    we filled this in, or you may leave it
+
+   A column that is both required and a dropdown takes orange: required is the
+   thing somebody has to notice.
+
+   Header text, column order, the header row (4) and the first data row (5) are
+   NOT ours to move - the importer matches on header text, so a tidier layout
+   here is a failed import later. */
+const HEAD = {
+    required: 'FFE8520A',
+    optional: 'FF1E3A5F',
+    fixed: 'FF374151',
+    line: 'FFD1D5DB',
+};
+
+const T = {
+    ink: 'FF374151',
+    cellLine: 'FFE5E7EB',
+    paper: 'FFFFFFFF',
+    zebra: 'FFF9FAFB',
+    legendFill: 'FFFFF3E0',
+    legendInk: 'FFB45309',
+    naFill: 'FFF3F4F6',
+    naInk: 'FF9CA3AF',
+    idInk: 'FF5E6E80',
+    dimInk: 'FF6B7280',
+    // The three scores, lowest risk to highest. Used by the conditional format
+    // on the answer grid and by the score columns on the Questions sheet, so a
+    // 3 reads the same in both places.
+    score: [
+        { fill: 'FFECFDF5', ink: 'FF047857' },
+        { fill: 'FFFFFBEB', ink: 'FFB45309' },
+        { fill: 'FFFEF2F2', ink: 'FFB91C1C' },
+    ],
+    everyFill: 'FFFFF3E0', everyInk: 'FFB45309', everyAsked: 'FFD97706',
+    sectorFill: 'FFEFF6FF', sectorInk: 'FF1D4ED8',
+};
+
+const NBSP = ' ';
+
+/* Hyphens only, everywhere. An en or em dash arrives by way of a paste out of
+   Word, and it is the character that quietly breaks a header match when the
+   file comes back. */
+const plain = v => (v === null || v === undefined ? '' : String(v)).replace(/[–—]/g, '-');
+
+const box = argb => ({
+    top: { style: 'thin', color: { argb } }, left: { style: 'thin', color: { argb } },
+    bottom: { style: 'thin', color: { argb } }, right: { style: 'thin', color: { argb } },
+});
+
+/** Row 3: what the colours mean, in the file itself rather than in a covering
+ *  email nobody keeps. */
+function legendBand(ws, span, text) {
+    const last = ws.getColumn(Math.max(2, span)).letter;
+    ws.mergeCells(`A3:${last}3`);
+    const c = ws.getCell('A3');
+    c.value = plain(text);
+    c.font = { name: 'Calibri', size: 9, italic: true, color: { argb: T.legendInk } };
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: T.legendFill } };
+    c.alignment = { vertical: 'middle', wrapText: true };
+    ws.getRow(3).height = 30;
+}
+
+/** Row 4. cols: [{ header, kind: required|optional|fixed, width }] */
+function themedHeader(ws, rowNo, cols) {
+    const r = ws.getRow(rowNo);
+    cols.forEach((col, i) => {
+        const c = r.getCell(i + 1);
+        c.value = plain(col.header);
+        c.font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FFFFFFFF' } };
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEAD[col.kind] } };
+        c.alignment = {
+            vertical: 'middle', wrapText: true,
+            horizontal: col.kind === 'required' ? 'center' : 'left',
+        };
+        c.border = box(HEAD.line);
+        ws.getColumn(i + 1).width = col.width;
+    });
+    r.height = 36;
+    ws.views = [{ state: 'frozen', ySplit: rowNo }];
+}
+
+/** The ground under every data cell: zebra, thin rule, one grey ink. */
+function dataCell(cell, i) {
+    cell.font = { name: 'Calibri', size: 9, color: { argb: T.ink } };
+    cell.fill = {
+        type: 'pattern', pattern: 'solid',
+        fgColor: { argb: i % 2 ? T.zebra : T.paper },
+    };
+    cell.border = box(T.cellLine);
+}
+
+const noteOf = text => ({
+    texts: [{ font: { name: 'Calibri', size: 9 }, text: plain(text) }],
+    margins: { insetmode: 'auto' },
+});
+
+/* Excel caps a data validation title at 32 characters and sizes the yellow box
+   to the TITLE, not to the message - so a short title gives a narrow box that
+   wraps the question into a thin ribbon. Padding the title out to the cap with
+   non-breaking spaces is what makes the box wide enough to read. */
+function promptTitle(text) {
+    const base = `${plain(text)}  `;
+    return base.length >= 32 ? base.slice(0, 32) : base + NBSP.repeat(32 - base.length);
+}
+
+/* [5,6,7,9] -> ['A5:A7', 'A9']. A sector question is asked of the suppliers on
+   that instrument and of nobody else, and those rows are scattered through an
+   alphabetical list - so a column's validation is one range per run of rows,
+   never one that spans the n/a cells between them. */
+function runs(rows) {
+    const out = [];
+    rows.forEach(r => {
+        const last = out[out.length - 1];
+        if (last && r === last[1] + 1) last[1] = r;
+        else out.push([r, r]);
+    });
+    return out;
+}
+
+const rangeOf = (letter, [a, b]) => (a === b ? `${letter}${a}` : `${letter}${a}:${letter}${b}`);
+
+/* Line breaks inside a data validation message.
+ *
+ * ExcelJS writes the prompt as an XML ATTRIBUTE and escapes only < > & " ',
+ * so a newline goes into the file as a raw LF - and an XML parser is required
+ * to turn any literal newline in an attribute into a space before Excel ever
+ * sees it. The question and its three options therefore arrived as one
+ * paragraph. The character reference &#10; survives that normalisation, and is
+ * the only thing that does, so the attribute is re-encoded here after ExcelJS
+ * has finished. Cell values are untouched - this rewrites nothing but the
+ * newlines in a prompt or error message. */
+const encodeBreaks = xml => xml.replace(
+    / (prompt|error)="([^"]*)"/g,
+    (whole, attr, value) => (value.includes('\n')
+        ? ` ${attr}="${value.replace(/\n/g, '&#10;')}"`
+        : whole));
+
+/** Writes the workbook, then repacks it with the prompt newlines encoded. */
+async function writeWorkbook(wb) {
+    const original = Buffer.from(await wb.xlsx.writeBuffer());
+    const dir = await unzipper.Open.buffer(original);
+
+    const zip = archiver('zip', { zlib: { level: 9 } });
+    const chunks = [];
+    zip.on('data', c => chunks.push(c));
+    const closed = new Promise((resolve, reject) => {
+        zip.on('end', resolve);
+        zip.on('error', reject);
+    });
+
+    // Same entries, same order - only the worksheet parts are rewritten, and
+    // only where a prompt carries a newline.
+    for (const file of dir.files) {
+        if (file.type !== 'File') continue;
+        const body = await file.buffer();
+        zip.append(
+            /^xl\/worksheets\/sheet\d+\.xml$/.test(file.path)
+                ? Buffer.from(encodeBreaks(body.toString('utf8')), 'utf8')
+                : body,
+            { name: file.path });
+    }
+    zip.finalize();
+    await closed;
+    return Buffer.concat(chunks);
+}
+
 /* ==================================================== 1. intake template */
 
 const INTAKE_COLUMNS = [
@@ -102,79 +284,160 @@ const INTAKE_COLUMNS = [
     { key: 'annual_value', header: 'Annual contract value', required: false, width: 20 },
     { key: 'contract_owner', header: 'Contract owner', required: true, width: 22 },
     { key: 'contact_email', header: 'Supplier contact email', required: true, width: 30 },
-    { key: 'data_access', header: 'Accesses our data (Y/N)', required: true, width: 20 },
-    { key: 'system_access', header: 'Connects to our systems (Y/N)', required: true, width: 24 },
-    { key: 'category', header: 'Category (leave blank)', required: false, width: 24 },
+    { key: 'data_access', header: 'Accesses our data (Y/N)', required: true, width: 20, dropdown: true },
+    { key: 'system_access', header: 'Connects to our systems (Y/N)', required: true, width: 24, dropdown: true },
+    { key: 'category', header: 'Category (leave blank)', required: false, width: 24, ours: true },
 ];
+
+const INTAKE_LEGEND =
+    '\u{1F4A1} Orange header = Required  |  Dark grey header = Optional  |  '
+    + '▼ = pick from dropdown  |  Required columns are also marked with *. '
+    + 'Do not add, remove or reorder columns. Leave the Category column blank - '
+    + 'we suggest it for you.';
+
+const GUIDANCE_LEGEND =
+    '\u{1F4A1} YES = the file cannot be loaded without it  |  '
+    + '▼ = pick from the dropdown on the Supplier list sheet  |  '
+    + 'Every column is listed here in the order it appears there';
 
 async function intakeTemplate({ tenantName, businessUnit }) {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Dolluz Corp TPRM';
     wb.created = new Date();
 
+    const LAST = 2000;
     const ws = wb.addWorksheet('Supplier list', { views: [{ showGridLines: false }] });
     brand(wb, ws, 'Supplier intake template',
-        `${tenantName}${businessUnit ? ' | ' + businessUnit : ''}   Export your supplier master into row 5 onward`);
+        `${tenantName}${businessUnit ? ' | ' + businessUnit : ''}   Export your supplier master into row 5 onward`,
+        INTAKE_COLUMNS.length);
+    legendBand(ws, INTAKE_COLUMNS.length, INTAKE_LEGEND);
 
-    const note = ws.getCell('A3');
-    note.value = 'Required columns are marked with *. Do not add, remove or reorder columns. '
-        + 'Leave the Category column blank - we suggest it for you.';
-    note.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF7C6113' } };
-    ws.mergeCells('A3:J3');
-    ws.getCell('A3').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCF6E4' } };
+    themedHeader(ws, 4, INTAKE_COLUMNS.map(c => ({
+        header: c.header + (c.required ? ' *' : ''),
+        // Both Y/N columns are required as well as pick-lists, and required is
+        // the thing that has to be noticed, so they take orange rather than the
+        // dropdown blue.
+        kind: c.required ? 'required' : 'fixed',
+        width: c.width,
+    })));
 
-    headerRow(ws, 4,
-        INTAKE_COLUMNS.map(c => c.header + (c.required ? ' *' : '')),
-        INTAKE_COLUMNS.map(c => c.width));
+    // The arrow only appears once a cell is selected, so the header says it too.
+    INTAKE_COLUMNS.forEach((c, i) => {
+        if (c.dropdown) ws.getRow(4).getCell(i + 1).note = noteOf('▼ Select from dropdown list');
+    });
+
+    for (let r = 5; r <= LAST; r++) {
+        const row = ws.getRow(r);
+        INTAKE_COLUMNS.forEach((c, i) => {
+            const cell = row.getCell(i + 1);
+            dataCell(cell, r - 5);
+            // Ours to fill in, not theirs. Drawn faint so the empty column does
+            // not read as something they missed.
+            if (c.ours) cell.font = { name: 'Calibri', size: 9, color: { argb: T.naInk } };
+            if (c.key === 'annual_value') cell.numFmt = '#,##0';
+        });
+    }
+
+    const colOf = key => ws.getColumn(INTAKE_COLUMNS.findIndex(c => c.key === key) + 1).letter;
+    const whole = letter => `${letter}5:${letter}${LAST}`;
 
     // Y/N dropdowns so the two triage answers arrive clean rather than as
     // "Yes", "yes", "TRUE", "1" and every other variant a spreadsheet invites.
-    for (const col of ['H', 'I']) {
-        for (let r = 5; r <= 2000; r++) {
-            ws.getCell(`${col}${r}`).dataValidation = {
-                type: 'list', allowBlank: false, formulae: ['"Y,N"'],
-                showErrorMessage: true, errorTitle: 'Y or N only',
-                error: 'Enter Y or N. This answer decides whether the supplier is assessed at all.',
-            };
-        }
-    }
-    for (let r = 5; r <= 2000; r++) {
-        ws.getCell(`E${r}`).numFmt = '#,##0.00';
-        if (r % 2 === 0) {
-            for (let c = 1; c <= 10; c++) {
-                ws.getRow(r).getCell(c).fill =
-                    { type: 'pattern', pattern: 'solid', fgColor: { argb: LIGHT } };
-            }
-        }
+    for (const key of ['data_access', 'system_access']) {
+        ws.dataValidations.add(whole(colOf(key)), {
+            type: 'list', allowBlank: false, formulae: ['"Y,N"'],
+            showInputMessage: true,
+            promptTitle: promptTitle('Y or N'),
+            prompt: 'Y if they do, N if they do not.\n'
+                + 'This answer decides whether the supplier is assessed at all.',
+            showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Y or N only',
+            error: 'Enter Y or N.',
+        });
     }
 
+    // Caught here rather than on import: a duplicate found in Excel costs one
+    // edit, the same duplicate found after upload costs a re-issued file.
+    const name = colOf('vendor_name');
+    ws.dataValidations.add(whole(name), {
+        type: 'custom', allowBlank: true,
+        formulae: [`COUNTIF($${name}$5:$${name}$${LAST},${name}5)=1`],
+        showInputMessage: true,
+        promptTitle: promptTitle('Supplier legal name'),
+        prompt: 'As it appears on the contract.\nEach supplier may appear only once in this file.',
+        showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Already in this file',
+        error: 'That supplier is listed above already. Every legal name must be unique.',
+    });
+
+    const mail = colOf('contact_email');
+    ws.dataValidations.add(whole(mail), {
+        type: 'custom', allowBlank: true,
+        formulae: [`AND(ISNUMBER(SEARCH("@",${mail}5)),ISNUMBER(SEARCH(".",${mail}5)))`],
+        showInputMessage: true,
+        promptTitle: promptTitle('Supplier contact email'),
+        prompt: 'Where the security questionnaire will be sent.\nOne address, with an @ and a dot.',
+        showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Not an email address',
+        error: 'Enter one address, for example name@supplier.com.',
+    });
+
+    const money = colOf('annual_value');
+    ws.dataValidations.add(whole(money), {
+        type: 'decimal', operator: 'greaterThanOrEqual', formulae: [0], allowBlank: true,
+        showInputMessage: true,
+        promptTitle: promptTitle('Annual contract value'),
+        prompt: 'A number, with no currency symbol.\nUsed for materiality, not for tiering on its own.',
+        showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Numbers only',
+        error: 'Enter a number of 0 or more, with no currency symbol or text.',
+    });
+
     const g = wb.addWorksheet('Guidance', { views: [{ showGridLines: false }] });
-    brand(wb, g, 'How to complete this workbook', tenantName);
-    headerRow(g, 4, ['Column', 'Required', 'What to enter'], [32, 14, 86]);
+    brand(wb, g, 'How to complete this workbook', tenantName, 3);
+    legendBand(g, 3, GUIDANCE_LEGEND);
+    themedHeader(g, 4, [
+        { header: 'Column', kind: 'optional', width: 32 },
+        { header: 'Required', kind: 'optional', width: 14 },
+        { header: 'What to enter', kind: 'optional', width: 86 },
+    ]);
     const guide = [
-        ['Supplier legal name', 'Required', 'As it appears on the contract. Must be unique in this file.'],
-        ['Trading name', 'Optional', 'Only if different from the legal name.'],
-        ['Service description', 'Required', 'One line describing what they do for you. This drives the category suggestion.'],
+        ['Supplier legal name', 'YES', 'As it appears on the contract. Must be unique in this file.'],
+        ['Trading name', 'no', 'Only if different from the legal name.'],
+        ['Service description', 'YES', 'One line describing what they do for you. This drives the category suggestion.'],
         ['Your spend category', 'Recommended', 'Straight from your procurement system, whatever code you already use.'],
         ['Annual contract value', 'Recommended', 'Numeric. Used for materiality, not for tiering on its own.'],
-        ['Contract owner', 'Required', 'Who inside your organisation owns the relationship.'],
-        ['Supplier contact email', 'Required', 'Where the security questionnaire will be sent.'],
-        ['Accesses our data', 'Required', 'Y or N. Drives the triage decision.'],
-        ['Connects to our systems', 'Required', 'Y or N. Drives the triage decision.'],
+        ['Contract owner', 'YES', 'Who inside your organisation owns the relationship.'],
+        ['Supplier contact email', 'YES', 'Where the security questionnaire will be sent.'],
+        ['Accesses our data ▼', 'YES', 'Y or N. Drives the triage decision.'],
+        ['Connects to our systems ▼', 'YES', 'Y or N. Drives the triage decision.'],
         ['Category', 'Leave blank', 'We suggest this from the rules and an assessor confirms it.'],
     ];
+    const LEVEL = {
+        YES: { argb: 'FFD97706', bold: true },
+        no: { argb: T.naInk, bold: false },
+        Recommended: { argb: T.dimInk, bold: true },
+        'Leave blank': { argb: T.dimInk, bold: true },
+    };
     guide.forEach((row, i) => {
         const r = g.getRow(5 + i);
         row.forEach((v, c) => {
             const cell = r.getCell(c + 1);
-            cell.value = v;
-            cell.font = { name: 'Calibri', size: 10, bold: c === 0 };
+            cell.value = plain(v);
+            dataCell(cell, i);
             cell.alignment = { wrapText: true, vertical: 'top' };
         });
+        const required = row[1] === 'YES';
+        const first = r.getCell(1);
+        if (required) {
+            first.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: T.everyFill } };
+        }
+        first.font = {
+            name: 'Calibri', size: 9, bold: true,
+            color: { argb: required ? T.everyInk : T.ink },
+        };
+        const level = LEVEL[row[1]];
+        r.getCell(2).font = { name: 'Calibri', size: 9, bold: level.bold, color: { argb: level.argb } };
         r.height = 26;
     });
 
-    return wb.xlsx.writeBuffer();
+    return writeWorkbook(wb);
 }
 
 /* =============================================== 2. parse a returned intake */
@@ -321,45 +584,138 @@ async function parseIntake(buffer) {
 
 /* ================================================ 3. tiering pack, one file */
 
+const TIERING_LEGEND =
+    '\u{1F4A1} Orange header = Required (answer 1, 2 or 3)  |  Dark grey header = Pre-filled, '
+    + 'do not edit  |  Grey n/a cell = not asked of this supplier  |  Click any answer cell or '
+    + 'hover a T-header to see the question and what 1 / 2 / 3 mean';
+
+const QUESTIONS_LEGEND =
+    '\u{1F4A1} Orange Ref = asked of every supplier  |  Blue Ref = asked only of the sector shown '
+    + 'in "Asked of"  |  Score 1 = lowest risk, Score 3 = highest risk';
+
+const askedOf = q => (q.sector_code ? `${q.sector_code} suppliers only` : 'Every supplier');
+
+/* What the yellow box says when an answer cell is clicked.
+ *
+ * Excel stops at 255 characters and truncates silently, mid word - which is
+ * how option 3 of the second T01 once went out as "regulated pers". Drop the
+ * stock opening first, and if it still will not fit, fail the export and name
+ * the question: half an answer on screen is worse than no file. */
+function clickBox(q) {
+    const withOptions = text => `${plain(text)}`
+        + `\n1 = ${plain(q.score_1_label)}`
+        + `\n2 = ${plain(q.score_2_label)}`
+        + `\n3 = ${plain(q.score_3_label)}`;
+
+    let prompt = withOptions(q.q_text);
+    if (prompt.length > 255) {
+        const shorter = plain(q.q_text).replace(/^What is the /, '');
+        prompt = withOptions(shorter.charAt(0).toUpperCase() + shorter.slice(1));
+    }
+    if (prompt.length > 255) {
+        throw new Error(
+            `Tiering pack: the question box for ${q.q_ref} needs ${prompt.length} characters and `
+            + 'Excel allows 255. Shorten the question or one of its score labels.');
+    }
+    return prompt;
+}
+
 async function tieringPack({ tenantName, questions, vendors }) {
     const wb = new ExcelJS.Workbook();
     wb.creator = 'Dolluz Corp TPRM';
 
+    const span = 3 + questions.length;
     const ws = wb.addWorksheet('Tiering', { views: [{ showGridLines: false }] });
     brand(wb, ws, 'Inherent risk tiering pack',
-        `${tenantName}   One row per supplier. Answer 1, 2 or 3 in every question column.`);
+        `${tenantName}   One row per supplier. Answer 1, 2 or 3 in every question column.`, span);
+    legendBand(ws, span, TIERING_LEGEND);
 
-    const heads = ['Supplier id', 'Supplier', 'Instrument', ...questions.map(q => q.q_ref)];
-    const widths = [12, 32, 24, ...questions.map(() => 10)];
-    headerRow(ws, 4, heads, widths);
+    themedHeader(ws, 4, [
+        { header: 'Supplier id', kind: 'fixed', width: 12 },
+        { header: 'Supplier', kind: 'fixed', width: 32 },
+        { header: 'Instrument', kind: 'fixed', width: 24 },
+        ...questions.map(q => ({ header: q.q_ref, kind: 'required', width: 7 })),
+    ]);
+
+    /* Everything below reaches a question BY POSITION. Two columns can carry
+       the same Ref - the core T01 and a sector T01 are different questions with
+       the same name - so anything that looked a question up by its header text
+       would hang the wrong box on one of them. This checks the assumption
+       rather than trusting it. */
+    questions.forEach((q, i) => {
+        const written = ws.getRow(4).getCell(4 + i).value;
+        if (written !== q.q_ref) {
+            throw new Error(`Tiering pack: column ${4 + i} reads "${written}" `
+                + `but question ${i + 1} is ${q.q_ref}. The header and question order have diverged.`);
+        }
+    });
 
     const legend = wb.addWorksheet('Questions', { views: [{ showGridLines: false }] });
-    brand(wb, legend, 'What each column asks', tenantName);
-    headerRow(legend, 4,
-        ['Ref', 'Dimension', 'Question', 'Score 1', 'Score 2', 'Score 3', 'Asked of'],
-        [10, 14, 60, 26, 26, 26, 26]);
+    brand(wb, legend, 'What each column asks', tenantName, 7);
+    legendBand(legend, 7, QUESTIONS_LEGEND);
+    themedHeader(legend, 4, [
+        { header: 'Ref', kind: 'optional', width: 8 },
+        { header: 'Dimension', kind: 'optional', width: 10 },
+        { header: 'Question', kind: 'optional', width: 60 },
+        { header: 'Score 1', kind: 'optional', width: 26 },
+        { header: 'Score 2', kind: 'optional', width: 26 },
+        { header: 'Score 3', kind: 'optional', width: 30 },
+        { header: 'Asked of', kind: 'optional', width: 20 },
+    ]);
     questions.forEach((qq, i) => {
         const r = legend.getRow(5 + i);
+        const every = !qq.sector_code;
         [qq.q_ref, qq.dimension_code, qq.q_text, qq.score_1_label, qq.score_2_label,
-         qq.score_3_label, qq.sector_code ? `${qq.sector_code} suppliers only` : 'Every supplier']
+         qq.score_3_label, askedOf(qq)]
             .forEach((v, c) => {
                 const cell = r.getCell(c + 1);
-                cell.value = v || '';
-                cell.font = { name: 'Calibri', size: 9, bold: c === 0 };
+                cell.value = plain(v);
+                dataCell(cell, i);
                 cell.alignment = { wrapText: true, vertical: 'top' };
             });
+
+        // The Ref carries who the question is put to, so the sheet can be read
+        // down its first column alone.
+        const ref = r.getCell(1);
+        ref.fill = {
+            type: 'pattern', pattern: 'solid',
+            fgColor: { argb: every ? T.everyFill : T.sectorFill },
+        };
+        ref.font = {
+            name: 'Calibri', size: 9, bold: true,
+            color: { argb: every ? T.everyInk : T.sectorInk },
+        };
+        r.getCell(2).font = { name: 'Calibri', size: 9, bold: true, color: { argb: T.dimInk } };
+        r.getCell(2).alignment = { horizontal: 'center', vertical: 'top' };
+        T.score.forEach((s, n) => {
+            r.getCell(4 + n).font = { name: 'Calibri', size: 9, color: { argb: s.ink } };
+        });
+        r.getCell(7).font = {
+            name: 'Calibri', size: 9, bold: true,
+            color: { argb: every ? T.everyAsked : T.sectorInk },
+        };
         r.height = 30;
     });
 
+    // Which rows each question is actually put to, gathered as the grid is
+    // written so the validations below cover those cells and no others.
+    const asked = questions.map(() => []);
+
     vendors.forEach((v, i) => {
         const r = ws.getRow(5 + i);
-        r.getCell(1).value = v.third_party_id;
-        r.getCell(2).value = v.third_party_name;
-        r.getCell(3).value = v.sector_name || v.sector_code;
-        for (let c = 0; c < questions.length; c++) {
-            const q = questions[c];
+        const id = r.getCell(1), supplier = r.getCell(2), instrument = r.getCell(3);
+        id.value = v.third_party_id;
+        supplier.value = plain(v.third_party_name);
+        instrument.value = plain(v.sector_name || v.sector_code);
+        [id, supplier, instrument].forEach(c => dataCell(c, i));
+        id.font = { name: 'Consolas', size: 9, color: { argb: T.idInk } };
+        supplier.font = { name: 'Calibri', size: 9, bold: true, color: { argb: T.ink } };
+        instrument.font = { name: 'Calibri', size: 9, color: { argb: T.dimInk } };
+
+        questions.forEach((q, c) => {
             const cell = r.getCell(4 + c);
-            cell.alignment = { horizontal: 'center' };
+            dataCell(cell, i);
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
             // A sector question is only asked of suppliers on that instrument.
             // The cell is filled and marked rather than left blank, so nobody
             // has to work out from the column heading whether it was an
@@ -367,20 +723,54 @@ async function tieringPack({ tenantName, questions, vendors }) {
             const applies = !q.sector_code || q.sector_code === v.sector_code;
             if (!applies) {
                 cell.value = 'n/a';
-                cell.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF8494A5' } };
-                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F4F7' } };
-                continue;
+                cell.font = { name: 'Calibri', size: 9, italic: true, color: { argb: T.naInk } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: T.naFill } };
+                return;
             }
-            cell.dataValidation = {
-                type: 'list', allowBlank: true, formulae: ['"1,2,3"'],
-                showErrorMessage: true, errorTitle: 'Score 1, 2 or 3',
-                error: 'See the Questions sheet for what each score means.',
-            };
-        }
-        r.getCell(1).font = { name: 'Consolas', size: 9, color: { argb: 'FF5E6E80' } };
+            cell.font = { name: 'Calibri', size: 9, bold: true, color: { argb: T.ink } };
+            asked[c].push(5 + i);
+        });
     });
 
-    return wb.xlsx.writeBuffer();
+    questions.forEach((q, c) => {
+        const letter = ws.getColumn(4 + c).letter;
+
+        // The same words as the click box, plus who the question is put to,
+        // reachable without selecting the cell.
+        ws.getRow(4).getCell(4 + c).note = noteOf(
+            `${q.q_ref} - ${q.dimension_code}\n${plain(q.q_text)}\n\n`
+            + `1 = ${plain(q.score_1_label)}\n2 = ${plain(q.score_2_label)}\n3 = ${plain(q.score_3_label)}\n\n`
+            + `Asked of: ${askedOf(q)}`);
+
+        const validation = {
+            type: 'list', allowBlank: true, formulae: ['"1,2,3"'],
+            showInputMessage: true,
+            promptTitle: promptTitle(`${q.q_ref} - ${q.dimension_code}`),
+            prompt: clickBox(q),
+            showErrorMessage: true, errorStyle: 'stop', errorTitle: 'Answer 1, 2 or 3',
+            error: 'Pick 1, 2 or 3 from the dropdown.',
+        };
+        runs(asked[c]).forEach(run => ws.dataValidations.add(rangeOf(letter, run), validation));
+    });
+
+    // Colour follows the answer as it is typed, so a sheet of 3s is visible
+    // from across the room rather than read a cell at a time.
+    if (vendors.length && questions.length) {
+        const first = ws.getColumn(4).letter;
+        const last = ws.getColumn(3 + questions.length).letter;
+        ws.addConditionalFormatting({
+            ref: `${first}5:${last}${4 + vendors.length}`,
+            rules: T.score.map((s, n) => ({
+                type: 'cellIs', operator: 'equal', formulae: [String(n + 1)], priority: n + 1,
+                style: {
+                    font: { bold: true, color: { argb: s.ink } },
+                    fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: s.fill } },
+                },
+            })),
+        });
+    }
+
+    return writeWorkbook(wb);
 }
 
 /** Reads a returned tiering pack back. Returns one record per supplier row. */
